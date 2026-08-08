@@ -1,6 +1,6 @@
-# Patches applied to upstream Prometheus (Fengatheus)
+# Patches applied to upstream Prometheus (Fengetheus)
 
-Fengatheus embeds the real [Prometheus](https://github.com/prometheus-lua/Prometheus)
+Fengetheus embeds the real [Prometheus](https://github.com/prometheus-lua/Prometheus)
 Lua obfuscator source (all 81 `.lua` files under `src/`), running inside
 [Fengari](https://fengari.io) — a real Lua 5.3 VM compiled to JavaScript.
 
@@ -87,18 +87,66 @@ values — functionally identical output, just not hex-formatted.
 
 ## 5. `web/src/engine.js` — force a fresh, non-clock-based seed on every retry
 
-Fengatheus-specific, not a patch to the Lua source itself. The original
+Fengetheus-specific, not a patch to the Lua source itself. The original
 mitigation reseeded Prometheus's RNG via `Seed <= 0`, which falls back to
 `os.time()` — a clock with 1-second resolution. On a fast machine, several
 obfuscation attempts inside the same second could end up seeded identically,
-silently defeating the retry loop. Fengatheus's driver script now clones the
+silently defeating the retry loop. Fengetheus's driver script now clones the
 selected preset and injects an explicit `Seed = Date.now() + attempt * 104729`
 on every retry, guaranteeing each attempt takes a genuinely different random
 path through `Vmify`/`ConstantArray`. `maxAttempts` was also raised from 5 to
 8 by default, since each additional attempt is cheap and meaningfully raises
 the odds of landing on a clean, self-verified result.
 
-## A known upstream bug this build does *not* patch
+## 6. `node_modules/fengari` — two browser-compatibility fixes (applied via `patch-package`, see `patches/fengari+0.1.5.patch`)
+
+Fengari has no `"browser"` field in its `package.json` — it ships one
+Node-targeted source tree, and (correctly) uses `typeof process !==
+"undefined"` throughout as its own "are we running in Node" detector,
+taking a browser-safe fallback path almost everywhere. Two spots didn't
+follow that pattern:
+
+**`src/luaconf.js`** read `process.env.FENGARICONF` completely unguarded,
+at module-evaluation time — the very first line fengari runs. In a real
+browser (`process` doesn't exist) this threw `ReferenceError: process is
+not defined` the instant `web/src/engine.js` did `import * as fengari from
+"fengari"`, which aborted its entire module graph before a single line of
+`web/src/app.js` executed — including the loop that populates the preset
+`<select>`. This was the root cause of the preset dropdown showing no
+options. Fixed by guarding the access with the same `typeof process !==
+"undefined"` check fengari uses everywhere else.
+
+**`src/liolib.js`**'s `luaopen_io` — unlike every other Node-specific
+branch in fengari, this function had no guard at all: it always did
+`createstdfile(L, process.stdin, ...)` etc. directly. `luaopen_io` runs on
+every single `luaL_openlibs()` call, i.e. on every obfuscation attempt, so
+even after the `luaconf.js` fix, clicking "Obfuscate" would immediately
+throw the same class of error. Fixed by falling back to inert no-op stream
+stand-ins when `process` is undefined — this build never performs real
+file I/O (see `web/src/node-shims/fs.js`), so the fallback objects only
+need to exist, not do anything.
+
+`package.json`'s `postinstall` script now runs `patch-package`
+automatically after every `npm install` (including in CI, see
+`.github/workflows/pages.yml`), so this patch is never silently lost by a
+future dependency bump.
+
+## 7. `src/prometheus/steps.lua` was completely empty
+
+Not a host-compatibility patch — this is Prometheus's own step registry
+(the table `pipeline.lua` looks up `Name = "Vmify"` etc. against), and the
+file contained no code at all, just blank lines. In Lua, `require()`-ing a
+module that doesn't `return` anything yields `true`, not `nil` — so
+`local Steps = require("prometheus.steps")` at the top of `pipeline.lua`
+silently became `local Steps = true`, and the first time any preset with a
+non-empty `Steps` list (i.e. every preset except `Minify`) tried to look up
+a step constructor, it failed with `attempt to index a boolean value
+(field 'Steps')`. This made every preset except `Minify` completely
+non-functional. Restored the aggregator table, following the exact same
+pattern already used by `src/prometheus/namegenerators.lua`, mapping each
+of the 11 step names actually referenced by `src/presets.lua` (and file
+basenames under `src/prometheus/steps/`) to its `require(...)`.
+
 
 The `Vmify` step, combined with `ConstantArray`, has a real, currently open,
 non-deterministic upstream bug
