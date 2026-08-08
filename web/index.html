@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prometheus — Lua Obfuscator, in your browser</title>
+<meta name="description" content="Real Prometheus Lua obfuscator running entirely client-side via a real Lua VM compiled to WebAssembly-grade JS. Nothing leaves your browser." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+<div class="embers" aria-hidden="true"></div>
+
+<header class="site-header">
+  <div class="wordmark">
+    <span class="flame" aria-hidden="true">&#9670;</span>
+    <div>
+      <div class="wordmark-title">PROMETHEUS</div>
+      <div class="wordmark-sub">lua obfuscator &mdash; runs entirely in your browser</div>
+    </div>
+  </div>
+  <a class="repo-link" href="https://github.com/prometheus-lua/Prometheus" target="_blank" rel="noopener">upstream project &#8599;</a>
+</header>
+
+<main>
+  <section class="pitch">
+    <p>
+      This page embeds the real Prometheus compiler &mdash; all 81 <code>.lua</code> source files, unmodified except for
+      four small host-compatibility patches (see <a href="./PATCHES.md" target="_blank">PATCHES.md</a>) &mdash;
+      and runs it inside <a href="https://fengari.io" target="_blank" rel="noopener">Fengari</a>, a real Lua 5.3 VM compiled to JavaScript.
+      Your code is parsed, transformed, and re-emitted by the actual obfuscator. Nothing is sent to a server.
+    </p>
+  </section>
+
+  <section class="pipeline" aria-hidden="true">
+    <div class="pipe-step" data-step="parse"><span class="dot"></span>parse</div>
+    <div class="pipe-step" data-step="transform"><span class="dot"></span>transform</div>
+    <div class="pipe-step" data-step="rename"><span class="dot"></span>rename</div>
+    <div class="pipe-step" data-step="emit"><span class="dot"></span>emit</div>
+    <div class="pipe-step" data-step="verify"><span class="dot"></span>verify</div>
+  </section>
+
+  <section class="panes">
+    <div class="pane">
+      <div class="pane-head">
+        <span>input.lua</span>
+      </div>
+      <textarea id="input" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    </div>
+
+    <div class="controls">
+      <label for="preset">Preset</label>
+      <select id="preset"></select>
+      <button id="run" class="run-btn">Obfuscate</button>
+      <div class="hint">Medium &amp; Strong self-verify their own output before handing it back &mdash; see below.</div>
+    </div>
+
+    <div class="pane">
+      <div class="pane-head">
+        <span>output.lua</span>
+        <div class="pane-actions">
+          <button id="copy">Copy</button>
+          <button id="download">Download</button>
+        </div>
+      </div>
+      <textarea id="output" spellcheck="false" readonly placeholder="Obfuscated code will appear here."></textarea>
+    </div>
+  </section>
+
+  <div id="stats" class="stats"></div>
+  <div id="warning" class="warning" hidden></div>
+
+  <section class="log-section">
+    <div class="log-head">log</div>
+    <div id="log" class="log"></div>
+  </section>
+
+  <section class="about">
+    <h2>How this actually works</h2>
+    <div class="about-grid">
+      <div>
+        <h3>A real Lua VM, in JS</h3>
+        <p>Fengari isn't a Lua-to-JS transpiler &mdash; it's a line-for-line port of the PUC-Rio Lua 5.3 VM. Prometheus's compiler, parser, and code generator run as actual Lua bytecode, executing inside that VM, inside your tab.</p>
+      </div>
+      <div>
+        <h3>Self-verifying output</h3>
+        <p>The Medium and Strong presets use a step (<code>Vmify</code> + <code>ConstantArray</code>) that has a known, non-deterministic upstream bug (<a href="https://github.com/prometheus-lua/Prometheus/issues/155" target="_blank" rel="noopener">#155</a>, <a href="https://github.com/prometheus-lua/Prometheus/issues/18" target="_blank" rel="noopener">#18</a>). This tool actually executes its own output in a sandboxed VM before showing it to you, and retries with a fresh seed if it hits that bug.</p>
+      </div>
+      <div>
+        <h3>Nothing leaves your browser</h3>
+        <p>There is no backend. This is a static site. Your source code, and the obfuscated result, never touch a network request.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Based on <a href="https://github.com/prometheus-lua/Prometheus" target="_blank" rel="noopener">Prometheus by Elias Oelschner</a> &middot;
+  Lua-in-JS by <a href="https://fengari.io" target="_blank" rel="noopener">Fengari</a>
+</footer>
+
+<script src="./dist/bundle.js"></script>
+</body>
+</html>
