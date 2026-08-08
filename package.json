@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build:modules": "node web/scripts/build-lua-modules.mjs",
-    "build:bundle": "esbuild web/src/app.js --bundle --outfile=web/dist/bundle.js --format=iife --platform=browser --target=es2020 --external:fs --external:child_process --external:tmp --external:path --external:os --external:crypto --external:readline-sync --minify",
+    "build:bundle": "esbuild web/src/app.js --bundle --outfile=web/dist/bundle.js --format=iife --platform=browser --target=es2020 --external:fs --external:child_process --external:tmp --external:path --external:os --external:crypto --external:readline-sync --define:process.env.FENGARICONF=undefined --define:process.versions.node=0 --minify",
     "build": "npm run build:modules && npm run build:bundle",
     "test": "node test/run.mjs"
   },
