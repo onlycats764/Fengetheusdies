@@ -1,4 +1,4 @@
-# Fengatheus
+# Fengetheus
 
 A static site that runs a real Lua obfuscator entirely client-side — no
 backend, nothing sent over the network. Fengatheus is built on top of the
