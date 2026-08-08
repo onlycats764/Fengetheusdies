@@ -1,16 +1,16 @@
-# Patches applied to upstream Prometheus
+# Patches applied to upstream Prometheus (Fengatheus)
 
-This repo embeds the real [Prometheus](https://github.com/prometheus-lua/Prometheus)
+Fengatheus embeds the real [Prometheus](https://github.com/prometheus-lua/Prometheus)
 Lua obfuscator source (all 81 `.lua` files under `src/`), running inside
 [Fengari](https://fengari.io) — a real Lua 5.3 VM compiled to JavaScript.
 
 Prometheus was written assuming it runs under a real, on-disk Lua 5.1
 interpreter (as its own CLI, or `require`d from a normal Lua project).
 Running it inside a JS-hosted VM with no filesystem, and with Fengari's
-Lua-5.3-flavored standard library, needed four small, mechanical
-compatibility patches. **No obfuscation logic was changed.** Every patch
-either adds a `nil`-guard around something that assumes a real OS process, or
-polyfills a stdlib function Fengari doesn't ship.
+Lua-5.3-flavored standard library, needed a handful of small, mechanical
+compatibility patches. **No obfuscation logic was changed** — every patch
+either adds a `nil`-guard around something that assumes a real OS process,
+or polyfills a stdlib function Fengari doesn't ship.
 
 ## 1. `src/prometheus.lua` — skip `package.path` rewrite when there's no real file path
 
@@ -85,6 +85,19 @@ restriction, since it only has floats. This patch falls back to a plain
 decimal literal instead of crashing the whole obfuscation for those edge-case
 values — functionally identical output, just not hex-formatted.
 
+## 5. `web/src/engine.js` — force a fresh, non-clock-based seed on every retry
+
+Fengatheus-specific, not a patch to the Lua source itself. The original
+mitigation reseeded Prometheus's RNG via `Seed <= 0`, which falls back to
+`os.time()` — a clock with 1-second resolution. On a fast machine, several
+obfuscation attempts inside the same second could end up seeded identically,
+silently defeating the retry loop. Fengatheus's driver script now clones the
+selected preset and injects an explicit `Seed = Date.now() + attempt * 104729`
+on every retry, guaranteeing each attempt takes a genuinely different random
+path through `Vmify`/`ConstantArray`. `maxAttempts` was also raised from 5 to
+8 by default, since each additional attempt is cheap and meaningfully raises
+the odds of landing on a clean, self-verified result.
+
 ## A known upstream bug this build does *not* patch
 
 The `Vmify` step, combined with `ConstantArray`, has a real, currently open,
@@ -102,9 +115,11 @@ constant-hoisting interact, and fixing it properly means patching the
 obfuscator's own logic, not just adapting it to a new host). Instead,
 `web/src/engine.js` mitigates it pragmatically: after obfuscating, it
 executes the result in a sandboxed VM, diffs its printed output against the
-original script's, and retries with a freshly-seeded pipeline (Prometheus
-reseeds its RNG from the clock whenever `Seed <= 0`) up to 5 times. If it
-still can't get a clean result, it hands back the best-effort output with an
-explicit warning rather than silently shipping broken code. See
-`test/run.mjs` for a regression test confirming this self-check doesn't
+original script's, and retries with a freshly forced seed (see patch 5 above)
+up to 8 times. If it still can't get a clean result, it hands back the
+best-effort output with an explicit warning rather than silently shipping
+broken code. If you hit this repeatedly on a specific script, the `Weak`
+preset is unaffected and still gives meaningful obfuscation.
+
+See `test/run.mjs` for a regression test confirming this self-check doesn't
 produce false "verified" results.
