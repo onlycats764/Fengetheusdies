@@ -11,6 +11,10 @@ const downloadBtn = $("#download");
 const logEl = $("#log");
 const warningEl = $("#warning");
 const statsEl = $("#stats");
+const fileInputEl = $("#file-input");
+const attachBtn = $("#attach");
+const inputPane = $("#input-pane");
+const fileNameEl = $("#file-name");
 
 const EXAMPLE = `local function greet(name)
 \treturn "Hello, " .. name .. "!"
@@ -48,7 +52,7 @@ async function run() {
   const preset = presetEl.value;
 
   if (!source.trim()) {
-    log("Nothing to obfuscate â paste some Lua code first.");
+    log("Nothing to obfuscate — paste some Lua code or attach a file first.");
     return;
   }
 
@@ -146,4 +150,73 @@ for (const name of PRESET_NAMES) {
 }
 presetEl.value = "Medium";
 
-log("Ready. Real Prometheus, running as real Lua bytecode inside a Lua VM compiled to JavaScript (Fengari) â entirely in your browser, nothing sent to any server.");
+/* ---------- file attach / drag & drop ---------- */
+
+const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB, plenty for a Lua script
+const ACCEPTED_EXT = [".lua", ".luau", ".txt"];
+
+function looksLikeAcceptable(name) {
+  const lower = name.toLowerCase();
+  return ACCEPTED_EXT.some((ext) => lower.endsWith(ext)) || !lower.includes(".");
+}
+
+function loadFileIntoInput(file) {
+  if (!file) return;
+  if (file.size > MAX_FILE_BYTES) {
+    log(`"${file.name}" is too large (${(file.size / 1024).toFixed(0)} KB). Max is ${MAX_FILE_BYTES / 1024 / 1024} MB.`);
+    return;
+  }
+  if (!looksLikeAcceptable(file.name)) {
+    log(`"${file.name}" doesn't look like a Lua script (expected .lua/.luau/.txt) — loading it anyway.`);
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    inputEl.value = String(reader.result ?? "");
+    if (fileNameEl) {
+      fileNameEl.textContent = file.name;
+      fileNameEl.hidden = false;
+    }
+    log(`Loaded "${file.name}" (${file.size} bytes) into the editor.`);
+  };
+  reader.onerror = () => {
+    log(`Could not read "${file.name}": ${reader.error?.message ?? "unknown error"}.`);
+  };
+  reader.readAsText(file);
+}
+
+if (attachBtn && fileInputEl) {
+  attachBtn.addEventListener("click", () => fileInputEl.click());
+  fileInputEl.addEventListener("change", () => {
+    const file = fileInputEl.files && fileInputEl.files[0];
+    loadFileIntoInput(file);
+    fileInputEl.value = ""; // allow re-selecting the same file later
+  });
+}
+
+if (inputPane) {
+  let dragDepth = 0;
+
+  inputPane.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    dragDepth++;
+    inputPane.classList.add("drag-over");
+  });
+  inputPane.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  });
+  inputPane.addEventListener("dragleave", () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) inputPane.classList.remove("drag-over");
+  });
+  inputPane.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    inputPane.classList.remove("drag-over");
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    loadFileIntoInput(file);
+  });
+}
+
+log("Ready. Real Prometheus, running as real Lua bytecode inside a Lua VM compiled to JavaScript (Fengari) — entirely in your browser, nothing sent to any server. Paste code or attach a .lua file to get started.");
