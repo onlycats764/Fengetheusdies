@@ -434,3 +434,46 @@ a:focus-visible {
   outline: 2px solid var(--steel);
   outline-offset: 2px;
 }
+
+/* ---------- Fengatheus: file attach / drag & drop ---------- */
+.file-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#input-pane {
+  position: relative;
+  transition: border-color 0.15s, background 0.15s;
+}
+#input-pane.drag-over {
+  border-color: var(--ember);
+  background: rgba(255, 106, 53, 0.06);
+}
+#input-pane.drag-over::after {
+  content: "Drop to load file";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ember-glow);
+  background: rgba(21, 18, 14, 0.85);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.drop-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 6px 14px 8px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-raise);
+}
