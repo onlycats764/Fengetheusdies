@@ -1,0 +1,19 @@
+{
+  "name": "prometheus-web",
+  "version": "1.0.0",
+  "description": "Real Prometheus Lua obfuscator running client-side in the browser via Fengari (a real Lua VM compiled to JS). Static site, no backend.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:modules": "node web/scripts/build-lua-modules.mjs",
+    "build:bundle": "esbuild web/src/app.js --bundle --outfile=web/dist/bundle.js --format=iife --platform=browser --target=es2020 --external:fs --external:child_process --external:tmp --external:path --external:os --external:crypto --external:readline-sync --minify",
+    "build": "npm run build:modules && npm run build:bundle",
+    "test": "node test/run.mjs"
+  },
+  "dependencies": {
+    "fengari": "^0.1.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
