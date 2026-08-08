@@ -1,5 +1,5 @@
 {
-  "name": "fengatheus-web",
+  "name": "fengetheus-web",
   "version": "1.1.0",
   "description": "Fengetheus — a Lua obfuscator built on top of Prometheus, running entirely client-side in the browser via Fengari (a real Lua VM compiled to JS). Static site, no backend.",
   "private": true,
