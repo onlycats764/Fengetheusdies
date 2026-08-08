@@ -1,14 +1,15 @@
 {
   "name": "fengatheus-web",
   "version": "1.1.0",
-  "description": "Fengatheus — a Lua obfuscator built on top of Prometheus, running entirely client-side in the browser via Fengari (a real Lua VM compiled to JS). Static site, no backend.",
+  "description": "Fengetheus — a Lua obfuscator built on top of Prometheus, running entirely client-side in the browser via Fengari (a real Lua VM compiled to JS). Static site, no backend.",
   "private": true,
   "type": "module",
-  "author": "Fengatheus",
+  "author": "Fengetheus",
   "license": "MIT",
   "scripts": {
+    "postinstall": "patch-package",
     "build:modules": "node web/scripts/build-lua-modules.mjs",
-    "build:bundle": "esbuild web/src/app.js --bundle --outfile=web/dist/bundle.js --format=iife --platform=browser --target=es2020 --external:fs --external:child_process --external:tmp --external:path --external:os --external:crypto --external:readline-sync --minify",
+    "build:bundle": "esbuild web/src/app.js --bundle --outfile=web/dist/bundle.js --format=iife --platform=browser --target=es2020 --alias:fs=./web/src/node-shims/fs.js --external:child_process --external:tmp --external:path --external:os --external:crypto --external:readline-sync --minify",
     "build": "npm run build:modules && npm run build:bundle",
     "test": "node test/run.mjs"
   },
@@ -16,6 +17,7 @@
     "fengari": "^0.1.4"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "patch-package": "^8.0.1"
   }
 }
