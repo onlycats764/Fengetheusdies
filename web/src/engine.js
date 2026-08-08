@@ -8,12 +8,35 @@ const { lua, lauxlib, lualib, to_luastring, to_jsstring } = fengari;
  * preloaded (via package.preload — no filesystem, no network, nothing
  * fetched at runtime: everything shipped inside the bundle).
  *
- * Fengatheus embeds the real Prometheus compiler unmodified except for the
+ * Fengetheus embeds the real Prometheus compiler unmodified except for the
  * host-compatibility patches documented in PATCHES.md.
  */
 function newPrometheusState() {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
+
+  // fengari's default global `print` is browser-safe on its own (it
+  // guards on `typeof process === "undefined"` and falls back to
+  // console.log), but it's still a bare console.log with no connection to
+  // this UI's log panel. Redirect it to the same capture path
+  // sandboxExecute() uses so any message Prometheus itself prints (e.g.
+  // Logger:error, see src/logger.lua) is visible through onLog() instead
+  // of only ever landing in the browser devtools console.
+  lua.lua_pushjsfunction(L, (LL) => {
+    const n = lua.lua_gettop(LL);
+    const parts = [];
+    for (let i = 1; i <= n; i++) {
+      lua.lua_getglobal(LL, to_luastring("tostring"));
+      lua.lua_pushvalue(LL, i);
+      lua.lua_call(LL, 1, 1);
+      parts.push(to_jsstring(lua.lua_tostring(LL, -1), undefined, undefined, "?"));
+      lua.lua_pop(LL, 1);
+    }
+    // eslint-disable-next-line no-console
+    console.log(parts.join("\t"));
+    return 0;
+  });
+  lua.lua_setglobal(L, to_luastring("print"));
 
   for (const [modname, code] of Object.entries(LUA_MODULES)) {
     lua.lua_getglobal(L, to_luastring("package"));
