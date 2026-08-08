@@ -8,7 +8,7 @@ essentially unmodified — see [PATCHES.md](./PATCHES.md) for the small
 host-compatibility patches) and runs it inside
 [Fengari](https://fengari.io), a real Lua 5.3 VM compiled to JavaScript.
 
-Live at: `[Fengetheus Web](https://xyraniz.github.io/Fengetheus/)` once deployed (see below).
+Live at: `(https://xyraniz.github.io/Fengetheus/)` once deployed (see below).
 
 ## What Fengatheus adds on top of Prometheus
 
