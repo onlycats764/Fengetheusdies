@@ -14,7 +14,7 @@
     "test": "node test/run.mjs"
   },
   "dependencies": {
-    "fengari": "^0.1.4"
+    "fengari": "github:Xyraniz/Fengari#master"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
