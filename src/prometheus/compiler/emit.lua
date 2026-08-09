@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- emit.lua
@@ -151,7 +150,7 @@ return function(Compiler)
                 for shift = 1, i - 1 do
                     local stat2 = blockstats[i - shift];
 
-                    if stat2.usesUpvals and usesUpvals then
+                    if stat2.usesUpvals or usesUpvals then
                         break;
                     end
 
