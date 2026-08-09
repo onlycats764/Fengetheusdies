@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- NumbersToExpressions.lua
@@ -64,6 +63,13 @@ local function contains(table, value)
 	return false
 end
 
+-- Detects negative zero (-0.0). Lua/IEEE754 treats -0.0 == 0.0 as true, so a
+-- naive equality check cannot tell them apart; dividing by the value can,
+-- since 1 / -0.0 is -inf while 1 / 0.0 is +inf.
+local function isNegativeZero(val)
+	return type(val) == "number" and val == 0 and 1 / val == -math.huge
+end
+
 function NumbersToExpressions:init(_)
 	self.ExpressionGenerators = {
 		function(val, depth) -- Addition
@@ -107,6 +113,15 @@ function NumbersToExpressions:init(_)
 end
 
 function NumbersToExpressions:CreateNumberExpression(val, depth)
+	-- Negative zero cannot survive any of the arithmetic decompositions below:
+	-- addition/subtraction generators rely on a + (-a) or (a - a), which IEEE754
+	-- always rounds to +0.0 regardless of the target sign, and the modulo
+	-- generator has the same problem. Leaving the literal untouched is the only
+	-- way to guarantee the sign bit survives obfuscation.
+	if isNegativeZero(val) then
+		return Ast.NumberExpression(val)
+	end
+
 	if depth > 0 and math.random() >= self.InternalThreshold or depth > 15 then
 		local format = self.AllowedNumberRepresentations[math.random(1, #self.AllowedNumberRepresentations)]
 		if not self.NumberRepresentationMutation then
