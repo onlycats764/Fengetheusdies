@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- randomLiterals.lua
@@ -22,7 +21,13 @@ function RandomLiterals.String(pipeline)
 end
 
 function RandomLiterals.Dictionary()
-    return RandomStrings.randomStringNode(true);
+    -- `randomStringNode` accepts either a table of words to pick from, or a
+    -- numeric length for a randomly generated string; passing the boolean
+    -- `true` matched neither case (it fell through to `wordsOrLen > 0`, which
+    -- errors when comparing a boolean to a number). There is no actual word
+    -- list anywhere in this codebase to select from, so fall back to the
+    -- length-based random string generation that already exists.
+    return RandomStrings.randomStringNode();
 end
 
 function RandomLiterals.Number()
