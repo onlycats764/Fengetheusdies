@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- function_declaration.lua
@@ -38,7 +37,7 @@ return function(self, statement, funcDepth)
             local indexReg = self:compileExpression(Ast.StringExpression(index), funcDepth, 1)[1];
             local tblRegOld = tblReg;
             tblReg = self:allocRegister(false);
-            self:addStatement(self:setRegister(scope, tblReg, Ast.IndexExpression(self:register(scope, tblRegOld), self:register(scope, indexReg))), {tblReg}, {tblReg, indexReg}, false);
+            self:addStatement(self:setRegister(scope, tblReg, Ast.IndexExpression(self:register(scope, tblRegOld), self:register(scope, indexReg))), {tblReg}, {tblReg, indexReg}, true);
             self:freeRegister(tblRegOld, false);
             self:freeRegister(indexReg, false);
         end
