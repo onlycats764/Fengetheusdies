@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- ProxifyLocals.lua
@@ -204,6 +203,35 @@ function ProxifyLocals:apply(ast, pipeline)
         Ast.FunctionLiteralExpression({}, Ast.Block({}, Scope:new(ast.body.scope)));
     }));
 
+    -- Pre-scan: lock any local that the ORIGINAL script itself uses as a metatable, by
+    -- literally assigning one of the reserved metamethod names (__add, __sub, __index,
+    -- __mul, __div, __pow, __concat) as a field on it - e.g. the extremely common Lua OOP
+    -- idiom `Class.__index = Class`. ProxifyLocals repurposes exactly these same field
+    -- names on the proxy object it builds for each local (to hide get/set access behind
+    -- real Lua operators). If the local were proxified AND the original script also writes
+    -- one of these fields on it directly, the two uses collide on the same key of the same
+    -- table, silently corrupting whichever the proxy needed for its own bookkeeping (this
+    -- previously surfaced as sporadic "attempt to index a nil value" crashes, since which
+    -- key collides depends on the random metamethod assignment, i.e. Seed). Locals used this
+    -- way must be excluded from proxification entirely; there is no way to safely rewrite
+    -- them without either technique's key going missing.
+    local reservedMetamethodKeys = {};
+    for _, entry in ipairs(MetatableExpressions) do
+        reservedMetamethodKeys[entry.key] = true;
+    end
+    visitast(ast, function(node, data)
+        if(node.kind == AstKind.AssignmentStatement) then
+            for _, lhs in ipairs(node.lhs) do
+                if(lhs.kind == AstKind.AssignmentIndexing
+                    and lhs.base.kind == AstKind.VariableExpression
+                    and lhs.index.kind == AstKind.StringExpression
+                    and reservedMetamethodKeys[lhs.index.value]) then
+                    disableMetatableInfo(lhs.base.scope, lhs.base.id);
+                end
+            end
+        end
+    end)
+
 
     visitast(ast, function(node, data)
         -- Lock for loop variables
@@ -244,14 +272,50 @@ function ProxifyLocals:apply(ast, pipeline)
     end, function(node, data)
         -- Local Variable Declaration
         if(node.kind == AstKind.LocalVariableDeclaration) then
+            -- Figure out which (if any) of the declared ids need to be proxified.
+            local infos = {};
+            local anyProxified = false;
             for i, id in ipairs(node.ids) do
-                local expr = node.expressions[i] or Ast.NilExpression();
-                local localMetatableInfo = getLocalMetatableInfo(node.scope, id);
-                -- Apply Only to Some Variables if Threshold is non 1
-                if localMetatableInfo then
-                    local newExpr = self:CreateAssignmentExpression(localMetatableInfo, expr, node.scope);
-                    node.expressions[i] = newExpr;
+                infos[i] = getLocalMetatableInfo(node.scope, id);
+                if infos[i] then
+                    anyProxified = true;
                 end
+            end
+
+            if anyProxified then
+                -- IMPORTANT: Lua's multi-assignment semantics allow the number of
+                -- expressions to differ from the number of ids. When there are
+                -- fewer expressions than ids, the *last* expression (if it is a
+                -- function call or vararg) expands to supply values for every
+                -- remaining id. Rewriting `node.expressions[i]` per-id (the naive
+                -- approach) silently discards those extra values whenever
+                -- #expressions < #ids, e.g. `local a, b, c = someCall()` would end
+                -- up with `b` and `c` set to nil instead of the 2nd/3rd results.
+                --
+                -- To stay correct in every case, we first evaluate the original,
+                -- untouched expression list into plain temporary locals - which
+                -- lets the Lua runtime itself apply the usual truncation/expansion
+                -- rules exactly as it would without this step - and only then wrap
+                -- each temporary's value into its proxy.
+                local declScope = node.scope;
+                local tempIds = {};
+                for i = 1, #node.ids do
+                    tempIds[i] = declScope:addVariable();
+                end
+                local statements = {
+                    Ast.LocalVariableDeclaration(declScope, tempIds, node.expressions);
+                };
+                for i, id in ipairs(node.ids) do
+                    local tempExpr = Ast.VariableExpression(declScope, tempIds[i]);
+                    local localMetatableInfo = infos[i];
+                    if localMetatableInfo then
+                        local newExpr = self:CreateAssignmentExpression(localMetatableInfo, tempExpr, declScope);
+                        table.insert(statements, Ast.LocalVariableDeclaration(declScope, {id}, {newExpr}));
+                    else
+                        table.insert(statements, Ast.LocalVariableDeclaration(declScope, {id}, {tempExpr}));
+                    end
+                end
+                return unpack(statements);
             end
         end
 
@@ -279,7 +343,17 @@ function ProxifyLocals:apply(ast, pipeline)
             local localMetatableInfo = getLocalMetatableInfo(node.scope, node.id);
             -- Apply Only to Some Variables if Threshold is non 1
             if localMetatableInfo then
-                return Ast.AssignmentIndexing(node, Ast.StringExpression(localMetatableInfo.valueName));
+                -- `node` here is an AssignmentVariable, which is only ever valid in LHS
+                -- position (it represents "assign into this slot", not a value) - it is not a
+                -- compilable expression. Passing it straight through as the `base` of
+                -- AssignmentIndexing (as done previously) compiles fine for single-target
+                -- assignments only because that case is intercepted earlier by the
+                -- AssignmentStatement previsit above and never reaches this branch; any
+                -- multi-target assignment to a proxified local (e.g. `a, b = b, a`) hits this
+                -- code directly and fails to compile ("AssignmentVariable is not an compliable
+                -- expression!"). Build a proper VariableExpression referencing the same
+                -- scope/id instead, matching the pattern already used a few lines above.
+                return Ast.AssignmentIndexing(Ast.VariableExpression(node.scope, node.id), Ast.StringExpression(localMetatableInfo.valueName));
             end
         end
 
@@ -290,7 +364,17 @@ function ProxifyLocals:apply(ast, pipeline)
             if localMetatableInfo then
                 local funcLiteral = Ast.FunctionLiteralExpression(node.args, node.body);
                 local newExpr = self:CreateAssignmentExpression(localMetatableInfo, funcLiteral, node.scope);
-                return Ast.LocalVariableDeclaration(node.scope, {node.id}, {newExpr});
+                -- `local function h() ... h() ... end` is sugar for `local h; h = function()
+                -- ... h() ... end`, which pre-declares `h` so the function body can call
+                -- itself recursively. Collapsing this into a single `local h = <newExpr>`
+                -- (as previously done) breaks that self-reference: at the point the function
+                -- literal is evaluated, the new local `h` is not yet in scope, so any read of
+                -- `h` inside the body resolves to an outer/global `h` (typically nil) instead
+                -- of the function itself. We predeclare `h` first, then assign - matching the
+                -- original desugaring - so recursive calls keep working.
+                return
+                    Ast.LocalVariableDeclaration(node.scope, {node.id}, {}),
+                    Ast.AssignmentStatement({ Ast.AssignmentVariable(node.scope, node.id) }, { newExpr });
             end
         end
 
