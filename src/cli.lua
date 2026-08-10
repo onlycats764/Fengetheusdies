@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- cli.lua
@@ -10,7 +9,16 @@ local function script_path()
 	local str = debug.getinfo(2, "S").source:sub(2)
 	return str:match("(.*[/%\\])")
 end
-package.path = script_path() .. "?.lua;" .. package.path
+-- script_path() returns nil when the CLI is invoked without a directory
+-- component in its own path (e.g. `lua cli.lua ...` from inside the same
+-- directory, which is how a locally-cloned checkout is normally run, and
+-- also how the test harness in this repo invokes it). Falling through to
+-- `nil .. "?.lua;"` crashes before a single argument is even parsed. Guard
+-- it exactly like prometheus.lua already does for the same pattern.
+local resolvedScriptPath = script_path()
+if resolvedScriptPath then
+	package.path = resolvedScriptPath .. "?.lua;" .. package.path
+end
 
 local INSTALL_SCRIPT_URL = "https://raw.githubusercontent.com/prometheus-lua/Prometheus/master/install.sh"
 
