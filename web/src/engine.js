@@ -58,6 +58,19 @@ function luaStringLiteral(js) {
   return JSON.stringify(js);
 }
 
+/**
+ * Normalizes a sandbox-captured output string for semantic comparison.
+ * Lua error messages embed the line number relative to the chunk
+ * (`[string "..."]:N: msg` and `<filename>:N: msg`), which shifts when the
+ * chunk is obfuscated or re-wrapped even though the error itself is the
+ * same. Strip those line-number prefixes so such diffs don't masquerade
+ * as silent corruption.
+ */
+function normalizeOutput(s) {
+  if (typeof s !== "string") return s;
+  return s.replace(/\[string "[^"]*"\]:\d+:/g, (m) => m.replace(/:\d+:$/, ":N:")).replace(/:\d+: /g, ":N: ");
+}
+
 const PRESET_NAMES = ["Minify", "Weak", "Medium", "Strong"];
 
 /**
@@ -97,8 +110,13 @@ return out
 /**
  * Executes a piece of Lua source in a brand-new, isolated sandbox VM,
  * capturing anything written via `print` (redirected to an in-memory
- * buffer instead of real stdout) and reporting whether it ran without a
- * Lua-level runtime error.
+ * buffer instead of real stdout), whether it ran without a Lua-level
+ * runtime error, AND the chunk's return value(s) serialized via
+ * `tostring` (chunk is executed as the body of a wrapper function so
+ * `return` statements and tail expressions both produce captureable
+ * values). Detecting return-value drift catches silent corruption where
+ * a script crashes neither in the original nor the obfuscated form but
+ * computes different values.
  */
 function sandboxExecute(luaCode) {
   const L = lauxlib.luaL_newstate();
@@ -127,12 +145,62 @@ function sandboxExecute(luaCode) {
   });
   lua.lua_setglobal(L, to_luastring("print"));
 
-  const status = lauxlib.luaL_dostring(L, to_luastring(luaCode));
+  // Serialize helper: Lua-side function that turns any return values into
+  // a stable, comparable string via tostring (functions/tables become
+  // their identity tags, which still differ when the underlying values
+  // differ; scalars become their plain representation).
+  const serialize = `do
+    local tostring = tostring;
+    local concat = table.concat;
+    return function(...)
+      local args = {...};
+      local parts = {};
+      for i = 1, select("#", ...) do
+        local t = type(args[i]);
+        if t == "boolean" then
+          parts[i] = args[i] and "true" or "false";
+        elseif args[i] == nil then
+          parts[i] = "nil";
+        else
+          parts[i] = tostring(args[i]);
+        end
+      end
+      return concat(parts, "\\t")
+    end
+  end`;
+  const serStatus = lauxlib.luaL_loadstring(L, to_luastring(serialize));
+  let serializedReturn = "";
+  if (serStatus === lua.LUA_OK) {
+    lua.lua_call(L, 0, 1); // the chunk returns the serialize function
+    lua.lua_setglobal(L, to_luastring("__fengetheus_serialize"));
+  }
+
+  // Wrap the user chunk in a vararg function so its return values / tail
+  // expressions become call results we can capture, and top-level `...`
+  // usage (legal in chunks) keeps working.
+  const wrapped = `return (function(...)\n${luaCode}\nend)(...)`;
+  const status = lauxlib.luaL_dostring(L, to_luastring(wrapped));
   if (status !== lua.LUA_OK) {
     const err = to_jsstring(lua.lua_tostring(L, -1), undefined, undefined, "?");
-    return { ok: false, error: err, printed: captured.join("\n") };
+    return { ok: false, error: err, printed: captured.join("\n"), returned: null };
   }
-  return { ok: true, error: null, printed: captured.join("\n") };
+
+  if (lua.lua_getglobal(L, to_luastring("__fengetheus_serialize")) === lua.LUA_TFUNCTION) {
+    // Duplicate the N return values above the serialize function on the stack
+    const n = lua.lua_gettop(L) - 1;
+    for (let i = 0; i < n; i++) {
+      lua.lua_pushvalue(L, 1 + i); // copy each return value
+    }
+    // Stack now: [serialize, ret1..retN, serialize?, ret1..retN]
+    // lua_insert to bring serialize below the copies:
+    lua.lua_insert(L, 1);
+    if (lua.lua_pcall(L, n, 1, 0) === lua.LUA_OK) {
+      serializedReturn = to_jsstring(lua.lua_tostring(L, -1), undefined, undefined, "?") ?? "";
+      lua.lua_pop(L, 1);
+    }
+  }
+  lua.lua_settop(L, 0);
+  return { ok: true, error: null, printed: captured.join("\n"), returned: serializedReturn };
 }
 
 /**
@@ -200,7 +268,7 @@ export function obfuscate(source, preset, { maxAttempts = 8, onLog = () => {} } 
       continue;
     }
 
-    if (baseline !== null && test.printed !== baseline) {
+    if (baseline !== null && (normalizeOutput(test.printed) !== normalizeOutput(baseline.printed) || test.returned !== baseline.returned)) {
       lastError = "obfuscated output behaves differently than the original (silent corruption, not a crash)";
       onLog(`[${preset}] Attempt ${attempt} ran without error but its output doesn't match the original's — silent corruption from the same known Vmify/ConstantArray issue. Retrying.`);
       continue;
