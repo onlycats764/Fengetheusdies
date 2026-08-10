@@ -6,7 +6,7 @@
 -- This step can now also convert numbers to different representations!
 -- Supported representations: hex, binary, scientific, normal. Please note that binary is only supported in Lua 5.2 and above.
 
-unpack = unpack or table.unpack
+local unpack = unpack or table.unpack
 
 local Step = require("prometheus.step")
 local Ast = require("prometheus.ast")
@@ -135,6 +135,32 @@ function NumbersToExpressions:CreateNumberExpression(val, depth)
 			-- Lua 5.3+ (incl. Fengari) requires an exact integer representation for %X.
 			-- Very large integer-valued floats (beyond 2^63) can't be represented as
 			-- a Lua integer, so fall back to a plain decimal literal in that case.
+			--
+			-- There is a second, more subtle hazard that is specific to Fengari
+			-- (and was previously undetected): Fengari's own Lua integer type is
+			-- only 32 bits wide, not the 64 bits real Lua 5.3/5.4 use (this is a
+			-- deliberate, documented upstream Fengari limitation, not something
+			-- this obfuscator can change). When a *decimal* integer literal
+			-- overflows that 32-bit range, Fengari correctly falls back to
+			-- parsing it as a float (matching real Lua's overflow rule), so the
+			-- value survives intact. But Fengari's *hexadecimal* literal parser
+			-- does not have that fallback: it silently wraps the value modulo
+			-- 2^32 using JavaScript's 32-bit "|0" operator instead of erroring
+			-- or promoting to float. A hex literal like 0x100049DA2 (which is
+			-- well within a 64-bit/double-precision integer and prints fine
+			-- under real Lua 5.1) silently becomes a completely different,
+			-- wrong number under Fengari with no error raised at all - and
+			-- Vmify's generated VM interpreter routinely produces constants in
+			-- this range for its bytecode encoding, so this reliably corrupts
+			-- double-Vmify ("Strong" preset) output the moment
+			-- NumberRepresentationMutation picks "hex" for one of them.
+			-- Restrict "hex" to values that fit in a signed 32-bit integer so
+			-- the literal round-trips identically on both real Lua and
+			-- Fengari; anything larger falls back to a plain (float-safe)
+			-- decimal literal instead.
+			if val > 0x7FFFFFFF then
+				return Ast.NumberExpression(val)
+			end
 			local intVal = math.tointeger and math.tointeger(val) or val
 			if not intVal then
 				return Ast.NumberExpression(val)
@@ -174,6 +200,24 @@ function NumbersToExpressions:CreateNumberExpression(val, depth)
 
 		if format == "scientific" then
 			if val == 0 then
+				return Ast.NumberExpression(val)
+			end
+
+			-- Scientific notation (e.g. "1e3") is *always* a float literal in
+			-- Lua grammar - Lua 5.1 and 5.3/Fengari agree on that syntax rule.
+			-- Under Lua 5.1 that distinction is invisible, since every number
+			-- is the same uniform type. But Fengari (like real Lua 5.3+) has
+			-- separate integer/float subtypes, and turning an originally
+			-- integer-valued constant into a float literal here silently
+			-- "infects" every place that value flows through afterwards:
+			-- tostring()/print() start appending ".0", and - more importantly
+			-- - string concatenation changes its actual output text (e.g.
+			-- `1 .. "x"` is "1x" but `1.0 .. "x"` is "1.0x"). That is an
+			-- observable behavior change, not just cosmetic, so exact-integer
+			-- values must not be rewritten as scientific notation. This
+			-- mirrors the guard the "hex" and "binary" branches above already
+			-- have for the same reason.
+			if val == math.floor(val) then
 				return Ast.NumberExpression(val)
 			end
 
