@@ -24,7 +24,7 @@ return function(self, expression, funcDepth, numReturns)
     local regs = { baseReg };
 
     for i, expr in ipairs(expression.args) do
-        if i == #expression.args and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
+        if i == #expression.args and not expr.isParenthesizedExpression and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
             local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
             table.insert(args, Ast.FunctionCallExpression(
                 self:unpack(scope),
@@ -46,7 +46,16 @@ return function(self, expression, funcDepth, numReturns)
         if returnAll then
             self:addStatement(self:setRegister(scope, retRegs[1], Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, tmpReg), args))}), {retRegs[1]}, {tmpReg, unpack(regs)}, true);
         else
-            self:addStatement(self:setRegister(scope, tmpReg, Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, tmpReg), args))}), {tmpReg}, {tmpReg, unpack(regs)}, true);
+            -- See the equivalent comment in expressions/function_call.lua:
+            -- a parenthesized call must truncate to exactly one real value
+            -- even when more registers were requested (e.g. `local a, b =
+            -- (obj:m())`). Marking the emitted call as parenthesized makes
+            -- the generated Lua source do that truncation for us.
+            local innerCall = Ast.FunctionCallExpression(self:register(scope, tmpReg), args);
+            if expression.isParenthesizedExpression then
+                innerCall.isParenthesizedExpression = true;
+            end
+            self:addStatement(self:setRegister(scope, tmpReg, Ast.TableConstructorExpression{Ast.TableEntry(innerCall)}), {tmpReg}, {tmpReg, unpack(regs)}, true);
 
             for i, reg in ipairs(retRegs) do
                 self:addStatement(self:setRegister(scope, reg, Ast.IndexExpression(self:register(scope, tmpReg), Ast.NumberExpression(i))), {reg}, {tmpReg}, false);
