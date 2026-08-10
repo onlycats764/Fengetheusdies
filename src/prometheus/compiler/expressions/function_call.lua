@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- function_call.lua
@@ -25,7 +24,7 @@ return function(self, expression, funcDepth, numReturns)
     local regs = {};
     local args = {};
     for i, expr in ipairs(expression.args) do
-        if i == #expression.args and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
+        if i == #expression.args and not expr.isParenthesizedExpression and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
             local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
             table.insert(args, Ast.FunctionCallExpression(
                 self:unpack(scope),
@@ -44,7 +43,20 @@ return function(self, expression, funcDepth, numReturns)
         if numReturns > 1 then
             local tmpReg = self:allocRegister(false);
 
-            self:addStatement(self:setRegister(scope, tmpReg, Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, baseReg), args))}), {tmpReg}, {baseReg, unpack(regs)}, true);
+            -- A parenthesized call, e.g. `local a, b = (f())`, must adjust to
+            -- exactly one value in real Lua, even though the caller here may
+            -- still ask for more registers (because there are more lhs
+            -- targets than rhs expressions). Marking the generated call
+            -- itself as parenthesized makes the *emitted* Lua source wrap it
+            -- in "(...)" too, so the table constructor below only ever
+            -- captures one real value; every other requested register is
+            -- then indexed out as nil below, exactly like real Lua would.
+            local innerCall = Ast.FunctionCallExpression(self:register(scope, baseReg), args);
+            if expression.isParenthesizedExpression then
+                innerCall.isParenthesizedExpression = true;
+            end
+
+            self:addStatement(self:setRegister(scope, tmpReg, Ast.TableConstructorExpression{Ast.TableEntry(innerCall)}), {tmpReg}, {baseReg, unpack(regs)}, true);
 
 
             for i, reg in ipairs(retRegs) do
