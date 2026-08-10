@@ -65,10 +65,20 @@ function luaStringLiteral(js) {
  * chunk is obfuscated or re-wrapped even though the error itself is the
  * same. Strip those line-number prefixes so such diffs don't masquerade
  * as silent corruption.
+ *
+ * The obfuscator's number-transformation step (NumbersToExpressions) may
+ * turn integer literals into arithmetic expressions that evaluate as
+ * floats, so `tostring` renders `15` as `15.0`. These are numerically
+ * identical in Lua, so canonicalize integer-looking floats (`\d+.0` ->
+ * `\d+`) before comparing — without this, otherwise-valid output gets
+ * flagged as silent corruption (false positive).
  */
 function normalizeOutput(s) {
   if (typeof s !== "string") return s;
-  return s.replace(/\[string "[^"]*"\]:\d+:/g, (m) => m.replace(/:\d+:$/, ":N:")).replace(/:\d+: /g, ":N: ");
+  return s
+    .replace(/\[string "[^"]*"\]:\d+:/g, (m) => m.replace(/:\d+:$/, ":N:"))
+    .replace(/:\d+: /g, ":N: ")
+    .replace(/\b(\d+)\.0(?![0-9a-zA-Z_.])/g, "$1");
 }
 
 const PRESET_NAMES = ["Minify", "Weak", "Medium", "Strong"];
@@ -268,7 +278,7 @@ export function obfuscate(source, preset, { maxAttempts = 8, onLog = () => {} } 
       continue;
     }
 
-    if (baseline !== null && (normalizeOutput(test.printed) !== normalizeOutput(baseline.printed) || test.returned !== baseline.returned)) {
+    if (baseline !== null && (normalizeOutput(test.printed) !== normalizeOutput(baseline.printed) || normalizeOutput(test.returned) !== normalizeOutput(baseline.returned))) {
       lastError = "obfuscated output behaves differently than the original (silent corruption, not a crash)";
       onLog(`[${preset}] Attempt ${attempt} ran without error but its output doesn't match the original's — silent corruption from the same known Vmify/ConstantArray issue. Retrying.`);
       continue;
@@ -294,4 +304,4 @@ export function obfuscate(source, preset, { maxAttempts = 8, onLog = () => {} } 
   };
 }
 
-export { PRESET_NAMES };
+export { sandboxExecute, obfuscateOnce, normalizeOutput, PRESET_NAMES };
