@@ -362,6 +362,9 @@ select#preset {
   background: var(--surface);
 }
 .log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 14px;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -370,6 +373,40 @@ select#preset {
   color: var(--text-dim);
   background: var(--bg-raise);
   border-bottom: 1px solid var(--border-soft);
+}
+.log-head button#copy-log {
+  text-transform: none;
+  letter-spacing: normal;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.log-head button#copy-log:hover {
+  color: var(--ember-glow);
+  border-color: var(--ember-deep);
+}
+
+.download-only-notice {
+  margin: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: rgba(255, 174, 66, 0.08);
+  color: var(--ember-glow);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.download-only-notice code {
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 .log {
   font-family: var(--font-mono);
