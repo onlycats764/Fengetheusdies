@@ -5,6 +5,15 @@
 --
 -- This file is the entrypoint for Prometheus
 
+-- Compatibility boundary for the embedded Prometheus compiler. Prometheus
+-- contains legacy Lua 5.1 modules that call global unpack, while Lua 5.2+
+-- (including Fengari's Lua 5.3 VM) exposes it as table.unpack.
+-- Install the alias before loading any compiler submodule. This affects only
+-- the private compiler VM; generated user code keeps normal VM semantics.
+if _G.unpack == nil and table.unpack then
+    _G.unpack = table.unpack;
+end
+
 -- Configure package.path for require
 local function script_path()
 	local str = debug.getinfo(2, "S").source:sub(2)
