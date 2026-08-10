@@ -171,3 +171,15 @@ preset is unaffected and still gives meaningful obfuscation.
 
 See `test/run.mjs` for a regression test confirming this self-check doesn't
 produce false "verified" results.
+
+## 8. Lua 5.3 compatibility boundary for legacy unpack calls
+
+The embedded Prometheus source contains legacy Lua 5.1 calls to the global `unpack` function in compiler, visitor, and transformation modules. Fengari executes Lua 5.3, where the standard function is exposed as `table.unpack` and the global name is intentionally absent. This caused every preset that loaded those paths to fail before producing output, with errors such as `attempt to call a nil value (global 'unpack')`.
+
+The fix is applied at the Prometheus entrypoint before any compiler submodule is required: the private compiler VM aliases `_G.unpack` to `table.unpack` only when the global is absent. The visitor and ProxifyLocals modules also use local compatibility bindings as defense-in-depth. This preserves Lua 5.3 semantics for generated user programs and avoids changing the Fengari fork or leaking a compatibility assumption into the target script.
+
+## 9. Worker isolation and large-result delivery
+
+The previous UI invoked Fengari synchronously from the main browser thread. Large inputs could make the page appear frozen, and assigning a large generated program directly to a textarea forced unnecessary DOM/layout work. `web/src/worker.js` now runs the complete obfuscation/self-verification pipeline in a dedicated Web Worker and streams progress logs back to the UI. `web/src/app.js` keeps the complete result for the existing Download action, but renders only results up to 64 KiB inline; larger results are explicitly marked `download-only` and are not inserted into the output textarea. Copy is disabled for those results, while Download remains enabled.
+
+The build now emits both `web/dist/bundle.js` and `web/dist/worker.js`, and the regression suite covers the reported example, multiple-return semantics, closures, tables, all four presets, and a 51 KiB input producing a 100 KiB Weak result.
