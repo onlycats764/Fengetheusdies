@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- AntiTamper.lua
@@ -122,7 +121,23 @@ function AntiTamper:apply(ast, pipeline)
             -- Anti Function Hook
             local funcs = {pcall, string.char, debug.getinfo, string.dump}
             for i = 1, #funcs do
-                if debug.getinfo(funcs[i]).what ~= "C" then
+                -- Real Lua marks a native (non-Lua-closure) function's
+                -- debug.getinfo(...).what as "C". Fengari's own builtins are
+                -- implemented in JavaScript, not C, so Fengari legitimately
+                -- reports "J" instead for the exact same kind of function
+                -- (see funcinfo() in Fengari's ldebug.js - this is intentional
+                -- upstream Fengari behavior, not a bug). Checking only for
+                -- "C" means this sanity check fails for every unmodified
+                -- script the moment it runs under Fengari, since none of
+                -- pcall/string.char/debug.getinfo/string.dump will ever
+                -- report "C" there - AntiTamper would flag *all* Fengari
+                -- executions as tampered and deliberately break them via
+                -- Tamper Detected!/the infinite-loop fallback below, with no
+                -- actual tampering having occurred. Both markers mean the
+                -- same thing (an unhookable native builtin), so both must be
+                -- accepted.
+                local what = debug.getinfo(funcs[i]).what
+                if what ~= "C" and what ~= "J" then
                     valid = false;
                 end
 
