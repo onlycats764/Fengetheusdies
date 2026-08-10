@@ -113,6 +113,15 @@ function NumbersToExpressions:init(_)
 end
 
 function NumbersToExpressions:CreateNumberExpression(val, depth)
+	-- Patch 13 (v1.3.2): non-finite values (inf / -inf / NaN) cannot survive any
+	-- of the arithmetic decompositions below either, and folding them through
+	-- the generators crashes with "attempt to perform arithmetic on a nil
+	-- value" (finite AST constants can fold to non-finite values in the parser
+	-- under Lua 5.3/Fengari, e.g. `"67" ^ 16777216`). Leaving the literal
+	-- untouched is the only safe behavior â it round-trips identically.
+	if val ~= val or val == math.huge or val == -math.huge then
+		return Ast.NumberExpression(val)
+	end
 	-- Negative zero cannot survive any of the arithmetic decompositions below:
 	-- addition/subtraction generators rely on a + (-a) or (a - a), which IEEE754
 	-- always rounds to +0.0 regardless of the target sign, and the modulo
