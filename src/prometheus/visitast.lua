@@ -8,6 +8,11 @@
 local Ast = require("prometheus.ast");
 local util = require("prometheus.util");
 
+-- Lua 5.3 (including Fengari) no longer exposes unpack globally.
+-- Keep the visitor compatible with both Lua 5.1 and Lua 5.2+ without
+-- changing the VM's global environment or the semantics of user scripts.
+local unpack = table.unpack or unpack;
+
 local AstKind = Ast.AstKind;
 local lookupify = util.lookupify;
 
