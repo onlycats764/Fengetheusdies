@@ -73,6 +73,9 @@
           <button id="download">Download</button>
         </div>
       </div>
+      <div id="download-only-notice" class="download-only-notice" hidden>
+        Output is too large to display as plain text here. Press <strong>Download</strong> above to save <code>obfuscated.lua</code> &mdash; the full result is ready, it's just not shown inline.
+      </div>
       <textarea id="output" spellcheck="false" readonly placeholder="Obfuscated code will appear here."></textarea>
     </div>
   </section>
@@ -81,7 +84,10 @@
   <div id="warning" class="warning" hidden></div>
 
   <section class="log-section">
-    <div class="log-head">log</div>
+    <div class="log-head">
+      <span>log</span>
+      <button id="copy-log" type="button">Copy Log</button>
+    </div>
     <div id="log" class="log"></div>
   </section>
 
