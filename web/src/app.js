@@ -1,4 +1,4 @@
-import { obfuscate, PRESET_NAMES } from "./engine.js";
+import { PRESET_NAMES } from "./engine.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -15,6 +15,14 @@ const fileInputEl = $("#file-input");
 const attachBtn = $("#attach");
 const inputPane = $("#input-pane");
 const fileNameEl = $("#file-name");
+
+// Large generated programs can make a textarea/layout pass expensive and
+// appear to freeze the tab. Keep the complete result available for download,
+// but only render a preview when it is reasonably small.
+const OUTPUT_PREVIEW_LIMIT = 64 * 1024;
+let latestOutput = "";
+let outputIsDownloadOnly = false;
+let activeWorker = null;
 
 const EXAMPLE = `local function greet(name)
 \treturn "Hello, " .. name .. "!"
@@ -47,19 +55,51 @@ function setBusy(busy) {
   runBtn.textContent = busy ? "Obfuscating..." : "Obfuscate";
 }
 
+function obfuscateInWorker(source, preset, onLog) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker("./dist/worker.js");
+    activeWorker = worker;
+    worker.onmessage = (event) => {
+      const message = event.data || {};
+      if (message.type === "log") {
+        onLog(message.message);
+      } else if (message.type === "result") {
+        worker.terminate();
+        activeWorker = null;
+        resolve(message.result);
+      } else if (message.type === "error") {
+        worker.terminate();
+        activeWorker = null;
+        reject(new Error(message.error));
+      }
+    };
+    worker.onerror = (event) => {
+      worker.terminate();
+      activeWorker = null;
+      reject(new Error(event.message || "Obfuscation worker failed."));
+    };
+    worker.postMessage({ source, preset, maxAttempts: 8 });
+  });
+}
+
 async function run() {
   const source = inputEl.value;
   const preset = presetEl.value;
 
   if (!source.trim()) {
-    log("Nothing to obfuscate — paste some Lua code or attach a file first.");
+    log("Nothing to obfuscate â paste some Lua code or attach a file first.");
     return;
   }
 
   clearLog();
   warningEl.hidden = true;
   statsEl.textContent = "";
+  latestOutput = "";
+  outputIsDownloadOnly = false;
   outputEl.value = "";
+  outputEl.placeholder = "Obfuscated code will appear here.";
+  copyBtn.disabled = true;
+  downloadBtn.disabled = true;
   setBusy(true);
   animatePipeline();
 
@@ -69,7 +109,7 @@ async function run() {
 
   const startedAt = performance.now();
   try {
-    const result = obfuscate(source, preset, { onLog: log });
+    const result = await obfuscateInWorker(source, preset, log);
     const elapsed = ((performance.now() - startedAt) / 1000).toFixed(2);
 
     if (!result.ok) {
@@ -80,8 +120,23 @@ async function run() {
       return;
     }
 
-    outputEl.value = result.code;
-    statsEl.textContent = `${source.length} bytes -> ${result.code.length} bytes (${((result.code.length / source.length) * 100).toFixed(0)}%) in ${elapsed}s, ${result.attempts} attempt${result.attempts === 1 ? "" : "s"}`;
+    latestOutput = result.code;
+    outputIsDownloadOnly = result.code.length > OUTPUT_PREVIEW_LIMIT;
+    if (outputIsDownloadOnly) {
+      // Do not assign the large string to the textarea: the result remains
+      // downloadable, while the editor stays responsive and never renders
+      // the generated source as plain text.
+      outputEl.value = "";
+      outputEl.placeholder = `Generated output is ${(result.code.length / 1024).toFixed(0)} KB. Use Download to save obfuscated.lua.`;
+      copyBtn.disabled = true;
+    } else {
+      outputEl.value = result.code;
+      outputEl.placeholder = "Obfuscated code will appear here.";
+      copyBtn.disabled = false;
+    }
+    downloadBtn.disabled = false;
+    const delivery = outputIsDownloadOnly ? "download-only" : "inline preview";
+    statsEl.textContent = `${source.length} bytes -> ${result.code.length} bytes (${((result.code.length / source.length) * 100).toFixed(0)}%) in ${elapsed}s, ${result.attempts} attempt${result.attempts === 1 ? "" : "s"} Â· ${delivery}`;
     setPipelineState("done");
 
     if (result.warning) {
@@ -93,6 +148,10 @@ async function run() {
     console.error(e);
     setPipelineState("failed");
   } finally {
+    if (activeWorker) {
+      activeWorker.terminate();
+      activeWorker = null;
+    }
     setBusy(false);
   }
 }
@@ -125,15 +184,15 @@ function setPipelineState(state) {
 }
 
 copyBtn.addEventListener("click", async () => {
-  if (!outputEl.value) return;
-  await navigator.clipboard.writeText(outputEl.value);
+  if (!latestOutput || outputIsDownloadOnly) return;
+  await navigator.clipboard.writeText(latestOutput);
   copyBtn.textContent = "Copied!";
   setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
 });
 
 downloadBtn.addEventListener("click", () => {
-  if (!outputEl.value) return;
-  const blob = new Blob([outputEl.value], { type: "text/x-lua" });
+  if (!latestOutput) return;
+  const blob = new Blob([latestOutput], { type: "text/x-lua;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -167,7 +226,7 @@ function loadFileIntoInput(file) {
     return;
   }
   if (!looksLikeAcceptable(file.name)) {
-    log(`"${file.name}" doesn't look like a Lua script (expected .lua/.luau/.txt) — loading it anyway.`);
+    log(`"${file.name}" doesn't look like a Lua script (expected .lua/.luau/.txt) â loading it anyway.`);
   }
 
   const reader = new FileReader();
@@ -219,4 +278,4 @@ if (inputPane) {
   });
 }
 
-log("Ready. Real Prometheus, running as real Lua bytecode inside a Lua VM compiled to JavaScript (Fengari) — entirely in your browser, nothing sent to any server. Paste code or attach a .lua file to get started.");
+log("Ready. Real Prometheus, running as real Lua bytecode inside a Lua VM compiled to JavaScript (Fengari) â entirely in your browser, nothing sent to any server. Paste code or attach a .lua file to get started.");
