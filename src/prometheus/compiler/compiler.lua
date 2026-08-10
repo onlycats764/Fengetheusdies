@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- compiler.lua
@@ -104,7 +103,27 @@ function Compiler:compile(ast)
     local _, getfenvVar = newGlobalScope:resolve("getfenv");
     local _, tableVar = newGlobalScope:resolve("table");
     local _, unpackVar = newGlobalScope:resolve("unpack");
-    local _, envVar = newGlobalScope:resolve("_ENV");
+    -- NOTE: this used to resolve "_ENV" instead of "_G" as the fallback for
+    -- when getfenv() is unavailable (Lua 5.2+/Fengari). That worked when
+    -- Vmify is applied once, because the *only* parser that ever sees this
+    -- fallback expression as real syntax is the host Lua/Fengari parser
+    -- loading the final generated program, and _ENV is a genuine upvalue
+    -- there. But when Vmify is applied a second time (the "Strong" preset),
+    -- the first pass's already-generated source - including this literal
+    -- fallback expression - becomes plain input text for Prometheus's own
+    -- parser (prometheus.parser), which has no notion of _ENV as anything
+    -- other than an ordinary global name. It gets re-compiled as a normal
+    -- global lookup, i.e. (globalTable)["_ENV"], which is nil (_ENV is not
+    -- an entry of the global table, unlike _G, which is a real self-
+    -- referential entry: _G._G == _G). Under real Lua 5.1 this dead code
+    -- path is never evaluated at runtime because getfenv() always exists
+    -- and the "and/or" short-circuits before reaching it - so the bug was
+    -- invisible there. Under Fengari, getfenv is nil, so the fallback IS
+    -- evaluated, and double-Vmify output throws "attempt to index a nil
+    -- value" while resolving any global (e.g. print). Using "_G" instead
+    -- fixes this because _G is an ordinary global binding that survives
+    -- any number of re-parse/re-compile passes, at every nesting depth.
+    local _, envVar = newGlobalScope:resolve("_G");
     local _, newproxyVar = newGlobalScope:resolve("newproxy");
     local _, setmetatableVar = newGlobalScope:resolve("setmetatable");
     local _, getmetatableVar = newGlobalScope:resolve("getmetatable");
