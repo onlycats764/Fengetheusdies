@@ -8,6 +8,8 @@ const presetEl = $("#preset");
 const runBtn = $("#run");
 const copyBtn = $("#copy");
 const downloadBtn = $("#download");
+const copyLogBtn = $("#copy-log");
+const downloadOnlyNoticeEl = $("#download-only-notice");
 const logEl = $("#log");
 const warningEl = $("#warning");
 const statsEl = $("#stats");
@@ -98,6 +100,7 @@ async function run() {
   outputIsDownloadOnly = false;
   outputEl.value = "";
   outputEl.placeholder = "Obfuscated code will appear here.";
+  if (downloadOnlyNoticeEl) downloadOnlyNoticeEl.hidden = true;
   copyBtn.disabled = true;
   downloadBtn.disabled = true;
   setBusy(true);
@@ -129,10 +132,12 @@ async function run() {
       outputEl.value = "";
       outputEl.placeholder = `Generated output is ${(result.code.length / 1024).toFixed(0)} KB. Use Download to save obfuscated.lua.`;
       copyBtn.disabled = true;
+      if (downloadOnlyNoticeEl) downloadOnlyNoticeEl.hidden = false;
     } else {
       outputEl.value = result.code;
       outputEl.placeholder = "Obfuscated code will appear here.";
       copyBtn.disabled = false;
+      if (downloadOnlyNoticeEl) downloadOnlyNoticeEl.hidden = true;
     }
     downloadBtn.disabled = false;
     const delivery = outputIsDownloadOnly ? "download-only" : "inline preview";
@@ -189,6 +194,16 @@ copyBtn.addEventListener("click", async () => {
   copyBtn.textContent = "Copied!";
   setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
 });
+
+if (copyLogBtn) {
+  copyLogBtn.addEventListener("click", async () => {
+    const lines = Array.from(logEl.children).map((el) => el.textContent);
+    if (lines.length === 0) return;
+    await navigator.clipboard.writeText(lines.join("\n"));
+    copyLogBtn.textContent = "Copied!";
+    setTimeout(() => (copyLogBtn.textContent = "Copy Log"), 1200);
+  });
+}
 
 downloadBtn.addEventListener("click", () => {
   if (!latestOutput) return;
