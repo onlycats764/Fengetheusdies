@@ -10,6 +10,11 @@ local Scope = require("prometheus.scope");
 local visitast = require("prometheus.visitast");
 local RandomLiterals = require("prometheus.randomLiterals")
 
+-- Lua 5.3 (including Fengari) moved unpack to table.unpack. Keep this
+-- module compatible with both Lua 5.1 and Lua 5.2+ without relying on a
+-- global compatibility shim that could leak into user code.
+local unpack = table.unpack or unpack;
+
 local AstKind = Ast.AstKind;
 
 local ProxifyLocals = Step:extend();
