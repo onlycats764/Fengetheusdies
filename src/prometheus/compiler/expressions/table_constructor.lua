@@ -1,4 +1,3 @@
-
 -- This Script is Part of the Prometheus Obfuscator by levno-710
 --
 -- table_constructor.lua
@@ -19,7 +18,7 @@ return function(self, expression, funcDepth, numReturns)
             for i, entry in ipairs(expression.entries) do
                 if entry.kind == AstKind.TableEntry then
                     local value = entry.value;
-                    if i == #expression.entries and (value.kind == AstKind.FunctionCallExpression or value.kind == AstKind.PassSelfFunctionCallExpression or value.kind == AstKind.VarargExpression) then
+                    if i == #expression.entries and not value.isParenthesizedExpression and (value.kind == AstKind.FunctionCallExpression or value.kind == AstKind.PassSelfFunctionCallExpression or value.kind == AstKind.VarargExpression) then
                         local reg = self:compileExpression(entry.value, funcDepth, self.RETURN_ALL)[1];
                         table.insert(entries, Ast.TableEntry(Ast.FunctionCallExpression(
                             self:unpack(scope),
