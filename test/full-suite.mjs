@@ -24,7 +24,7 @@ const MAX_ATTEMPTS = parseInt(args["--attempts"] || "8", 10);
 const SEEDS_FROM = parseInt(args["--seeds-from"] || "0", 10);
 const QUIET = args["--quiet"] !== undefined;
 
-function newState() {
+export function newState() {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
   for (const [modname, code] of Object.entries(LUA_MODULES)) {
@@ -37,7 +37,7 @@ function newState() {
   return L;
 }
 
-function sandboxExecute(luaCode) {
+export function sandboxExecute(luaCode) {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
   lua.lua_pushnil(L);
@@ -118,14 +118,15 @@ function sandboxExecute(luaCode) {
  * (`[string "..."]:N: msg` or `<file>:N: msg`), which shifts when the chunk
  * is re-wrapped or obfuscated even when the error itself is identical.
  */
-function normalizeOutput(s) {
+export function normalizeOutput(s) {
   if (typeof s !== "string") return s;
   return s
     .replace(/\[string "[^"]*"\]:\d+:/g, (m) => m.replace(/:\d+:$/, ":N:"))
-    .replace(/^([^:\n]+):\d+: /gm, (m, pre) => `${pre}:N: `);
+    .replace(/^([^:\n]+):\d+: /gm, (m, pre) => `${pre}:N: `)
+    .replace(/\b(\d+)\.0(?![0-9a-zA-Z_.])/g, "$1");
 }
 
-function obfuscateOnce(source, preset, seed) {
+export function obfuscateOnce(source, preset, seed) {
   const L = newState();
   const driver = `
 local Prometheus = require("prometheus")
@@ -165,7 +166,7 @@ function verifyObfuscated(source, preset) {
       lastError = `runtime crash: ${test.error}`;
       continue;
     }
-    if (normalizeOutput(test.printed) !== normalizeOutput(baseline.printed) || test.returned !== baseline.returned) {
+    if (normalizeOutput(test.printed) !== normalizeOutput(baseline.printed) || normalizeOutput(test.returned) !== normalizeOutput(baseline.returned)) {
       lastError = "silent corruption (printed/returned mismatch)";
       continue;
     }
