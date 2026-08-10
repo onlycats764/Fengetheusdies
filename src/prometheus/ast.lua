@@ -449,10 +449,24 @@ function Ast.StringExpression(value)
 	}
 end
 
+-- Patch 13 (v1.3.2): Constant folding must never promote a finite expression
+-- into a non-finite (inf / -inf / NaN) constant. Under Lua 5.3/Fengari, an
+-- arithmetic operation on finite operands can legally produce Infinity (e.g.
+-- a numerically-looking string folded as a number: `"67" ^ 16777216`), and
+-- once such a value enters the AST as a Number constant it later crashes
+-- steps that decompose numeric literals (NumbersToExpressions fails with
+-- "attempt to perform arithmetic on a nil value" when handed -Infinity).
+-- When the folded result is non-finite we leave the original expression
+-- intact, which matches runtime semantics exactly (a non-finite constant
+-- could never be produced by folding a finite expression at runtime either).
+local function isFiniteNumber(v)
+	return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
 function Ast.OrExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value or rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -468,7 +482,7 @@ end
 function Ast.AndExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value and rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -484,7 +498,7 @@ end
 function Ast.LessThanExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value < rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -500,7 +514,7 @@ end
 function Ast.GreaterThanExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value > rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -516,7 +530,7 @@ end
 function Ast.LessThanOrEqualsExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value <= rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -532,7 +546,7 @@ end
 function Ast.GreaterThanOrEqualsExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value >= rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -548,7 +562,7 @@ end
 function Ast.NotEqualsExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value ~= rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -564,7 +578,7 @@ end
 function Ast.EqualsExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value == rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -580,7 +594,7 @@ end
 function Ast.StrCatExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value .. rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -596,7 +610,7 @@ end
 function Ast.AddExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value + rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -612,7 +626,7 @@ end
 function Ast.SubExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value - rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -628,7 +642,7 @@ end
 function Ast.MulExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value * rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -644,7 +658,7 @@ end
 function Ast.DivExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant and rhs.value ~= 0) then
 		local success, val = pcall(function() return lhs.value / rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -660,7 +674,7 @@ end
 function Ast.ModExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value % rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -676,7 +690,7 @@ end
 function Ast.NotExpression(rhs, simplify)
 	if(simplify and rhs.isConstant) then
 		local success, val = pcall(function() return not rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -691,7 +705,7 @@ end
 function Ast.NegateExpression(rhs, simplify)
 	if(simplify and rhs.isConstant) then
 		local success, val = pcall(function() return -rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -706,7 +720,7 @@ end
 function Ast.LenExpression(rhs, simplify)
 	if(simplify and rhs.isConstant) then
 		local success, val = pcall(function() return #rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
@@ -721,7 +735,7 @@ end
 function Ast.PowExpression(lhs, rhs, simplify)
 	if(simplify and rhs.isConstant and lhs.isConstant) then
 		local success, val = pcall(function() return lhs.value ^ rhs.value end);
-		if success then
+		if success and isFiniteNumber(val) then
 			return Ast.ConstantNode(val);
 		end
 	end
