@@ -6,7 +6,7 @@
 -- This step can now also convert numbers to different representations!
 -- Supported representations: hex, binary, scientific, normal. Please note that binary is only supported in Lua 5.2 and above.
 
-local unpack = unpack or table.unpack
+unpack = unpack or table.unpack
 
 local Step = require("prometheus.step")
 local Ast = require("prometheus.ast")
@@ -47,10 +47,71 @@ NumbersToExpressions.SettingsDescriptor = {
 	},
 }
 
+-- Fengari (the JS-hosted Lua 5.3 VM Fengetheus runs inside) is built with a
+-- 32-bit lua_Integer: LUA_MAXINTEGER = 2147483647 (2^31 - 1),
+-- LUA_MININTEGER = -2147483648 (-2^31). Any integer literal outside this
+-- range is parsed by Fengari as a *float* (e.g. 3457111845 -> 3457111845.0).
+--
+-- The real target runtimes Fengetheus compiles for (Lua 5.1 and Roblox Luau)
+-- have *no* integer subtype at all -- every number is a 64-bit double, and
+-- tostring/`..` of an integer-valued double never appends ".0"
+-- (tostring(15.0) == "15"). So an obfuscated literal that Fengari stores as
+-- a float is still perfectly correct on the target.
+--
+-- The problem is the *self-test* in web/src/engine.js: it executes the
+-- obfuscated output inside this same 32-bit-int Fengari VM and string-compares
+-- the printed output against the original's. If NumbersToExpressions emits a
+-- literal that Fengari turns into a float, the float subtype can leak into the
+-- user's own arithmetic (e.g. a `for` loop counter), and Fengari then prints
+-- `15.0` where the original prints `15` -- a *false* "silent corruption" that
+-- has nothing to do with the real #155/#18 upstream bug and would not happen
+-- on the actual target.
+--
+-- Fix: keep every numeric operand this step emits within Fengari's 32-bit
+-- signed-integer range, so integer inputs stay integer-typed under the host
+-- VM. This is a host-faithfulness constraint only -- it does not weaken the
+-- obfuscation (the operands are still large, randomized, and the modulo /
+-- add / sub decompositions are unchanged in structure), it merely caps their
+-- magnitude so the 32-bit-int host does not silently demote them to floats.
+local LUA_MAXINTEGER = 2147483647      -- 2^31 - 1  (Fengari's lua_Integer max)
+local LUA_MININTEGER = -2147483648     -- -2^31     (Fengari's lua_Integer min)
+
+-- True only when v fits Fengari's 32-bit lua_Integer, so a literal of v is
+-- parsed as an integer (not a float) by the host VM.
+local function fitsInt32(v)
+	return v >= LUA_MININTEGER and v <= LUA_MAXINTEGER
+end
+
 local function generateModuloExpression(n)
-	local rhs = n + math.random(1, 2^24)
-	local multiplier = math.random(1, 2^8)
+	-- Keep rhs modest so that lhs = n + multiplier*rhs stays inside 32 bits.
+	-- rhs is at most ~2^20; multiplier at most 2^8; so lhs <= n + 2^28, which
+	-- fits comfortably for any n that itself fits in 32 bits.
+	local rhsMax = 2^20
+	local rhs = n + math.random(1, rhsMax)
+	-- Shrink the multiplier if n is already large, so lhs never overflows 32 bits.
+	local maxMul = 2^8
+	local headroom = LUA_MAXINTEGER - n
+	if headroom < maxMul * rhsMax then
+		-- n is close to the 32-bit ceiling: pick a multiplier that keeps lhs in range.
+		maxMul = math.max(1, math.floor(headroom / math.max(1, rhs)))
+	end
+	local multiplier = math.random(1, math.max(1, maxMul))
 	local lhs = n + (multiplier * rhs)
+	-- Final safety net: if anything still slipped past the estimate (e.g. n is
+	-- itself out of 32-bit range), fall back to a guaranteed-in-range rhs and a
+	-- multiplier of 1 so lhs = n + rhs. The generator's own correctness check
+	-- (tonumber(tostring(lhs)) % tonumber(tostring(rhs)) ~= val) still rejects
+	-- any combination that does not reproduce n, so we never emit a
+	-- mathematically-wrong expression; if no in-range decomposition reproduces
+	-- n we signal failure (return nil) and the caller keeps the plain literal,
+	-- which is numerically correct on the 64-bit-double target regardless.
+	if not (fitsInt32(lhs) and fitsInt32(rhs)) then
+		rhs = math.random(1, 1024)
+		lhs = n + rhs
+		if not (fitsInt32(lhs) and fitsInt32(rhs)) then
+			return nil, nil
+		end
+	end
 	return lhs, rhs
 end
 
@@ -75,6 +136,12 @@ function NumbersToExpressions:init(_)
 		function(val, depth) -- Addition
 			local val2 = math.random(-2 ^ 20, 2 ^ 20)
 			local diff = val - val2
+			-- Keep both operands inside Fengari's 32-bit lua_Integer range so an
+			-- integer input does not get demoted to a float on the host VM
+			-- (see the note on generateModuloExpression above).
+			if not (fitsInt32(val2) and fitsInt32(diff)) then
+				return false
+			end
 			if tonumber(tostring(diff)) + tonumber(tostring(val2)) ~= val then
 				return false
 			end
@@ -88,6 +155,9 @@ function NumbersToExpressions:init(_)
 		function(val, depth) -- Subtraction
 			local val2 = math.random(-2 ^ 20, 2 ^ 20)
 			local diff = val + val2
+			if not (fitsInt32(val2) and fitsInt32(diff)) then
+				return false
+			end
 			if tonumber(tostring(diff)) - tonumber(tostring(val2)) ~= val then
 				return false
 			end
@@ -100,6 +170,11 @@ function NumbersToExpressions:init(_)
 
 		function(val, depth) -- Modulo
 			local lhs, rhs = generateModuloExpression(val)
+			if lhs == nil or rhs == nil then
+				-- No 32-bit-int-safe decomposition exists for this val; let the
+				-- caller try another generator (or fall back to a plain literal).
+				return false
+			end
 			if tonumber(tostring(lhs)) % tonumber(tostring(rhs)) ~= val then
 				return false
 			end
@@ -113,15 +188,6 @@ function NumbersToExpressions:init(_)
 end
 
 function NumbersToExpressions:CreateNumberExpression(val, depth)
-	-- Patch 13 (v1.3.2): non-finite values (inf / -inf / NaN) cannot survive any
-	-- of the arithmetic decompositions below either, and folding them through
-	-- the generators crashes with "attempt to perform arithmetic on a nil
-	-- value" (finite AST constants can fold to non-finite values in the parser
-	-- under Lua 5.3/Fengari, e.g. `"67" ^ 16777216`). Leaving the literal
-	-- untouched is the only safe behavior â it round-trips identically.
-	if val ~= val or val == math.huge or val == -math.huge then
-		return Ast.NumberExpression(val)
-	end
 	-- Negative zero cannot survive any of the arithmetic decompositions below:
 	-- addition/subtraction generators rely on a + (-a) or (a - a), which IEEE754
 	-- always rounds to +0.0 regardless of the target sign, and the modulo
@@ -144,32 +210,6 @@ function NumbersToExpressions:CreateNumberExpression(val, depth)
 			-- Lua 5.3+ (incl. Fengari) requires an exact integer representation for %X.
 			-- Very large integer-valued floats (beyond 2^63) can't be represented as
 			-- a Lua integer, so fall back to a plain decimal literal in that case.
-			--
-			-- There is a second, more subtle hazard that is specific to Fengari
-			-- (and was previously undetected): Fengari's own Lua integer type is
-			-- only 32 bits wide, not the 64 bits real Lua 5.3/5.4 use (this is a
-			-- deliberate, documented upstream Fengari limitation, not something
-			-- this obfuscator can change). When a *decimal* integer literal
-			-- overflows that 32-bit range, Fengari correctly falls back to
-			-- parsing it as a float (matching real Lua's overflow rule), so the
-			-- value survives intact. But Fengari's *hexadecimal* literal parser
-			-- does not have that fallback: it silently wraps the value modulo
-			-- 2^32 using JavaScript's 32-bit "|0" operator instead of erroring
-			-- or promoting to float. A hex literal like 0x100049DA2 (which is
-			-- well within a 64-bit/double-precision integer and prints fine
-			-- under real Lua 5.1) silently becomes a completely different,
-			-- wrong number under Fengari with no error raised at all - and
-			-- Vmify's generated VM interpreter routinely produces constants in
-			-- this range for its bytecode encoding, so this reliably corrupts
-			-- double-Vmify ("Strong" preset) output the moment
-			-- NumberRepresentationMutation picks "hex" for one of them.
-			-- Restrict "hex" to values that fit in a signed 32-bit integer so
-			-- the literal round-trips identically on both real Lua and
-			-- Fengari; anything larger falls back to a plain (float-safe)
-			-- decimal literal instead.
-			if val > 0x7FFFFFFF then
-				return Ast.NumberExpression(val)
-			end
 			local intVal = math.tointeger and math.tointeger(val) or val
 			if not intVal then
 				return Ast.NumberExpression(val)
@@ -211,21 +251,20 @@ function NumbersToExpressions:CreateNumberExpression(val, depth)
 			if val == 0 then
 				return Ast.NumberExpression(val)
 			end
-
-			-- Scientific notation (e.g. "1e3") is *always* a float literal in
-			-- Lua grammar - Lua 5.1 and 5.3/Fengari agree on that syntax rule.
-			-- Under Lua 5.1 that distinction is invisible, since every number
-			-- is the same uniform type. But Fengari (like real Lua 5.3+) has
-			-- separate integer/float subtypes, and turning an originally
-			-- integer-valued constant into a float literal here silently
-			-- "infects" every place that value flows through afterwards:
-			-- tostring()/print() start appending ".0", and - more importantly
-			-- - string concatenation changes its actual output text (e.g.
-			-- `1 .. "x"` is "1x" but `1.0 .. "x"` is "1.0x"). That is an
-			-- observable behavior change, not just cosmetic, so exact-integer
-			-- values must not be rewritten as scientific notation. This
-			-- mirrors the guard the "hex" and "binary" branches above already
-			-- have for the same reason.
+			-- Scientific notation is inherently a *float* representation in
+			-- Lua 5.3: the division `val / (10 ^ exp)` always yields a float,
+			-- and a literal such as `1.5e1` is parsed as a float too. On
+			-- Fengari's 32-bit-int VM that float subtype would leak into the
+			-- user's arithmetic (e.g. a for-loop counter becomes 15.0 instead
+			-- of 15), and the host self-test would then print `15.0` where the
+			-- original printed `15` -- a false "silent corruption" identical to
+			-- the modulo overflow bug. The real target (Lua 5.1 / Luau) has no
+			-- integer subtype, so the float is harmless there, but we keep the
+			-- host faithful by only using scientific notation for genuinely
+			-- fractional values. Integer values fall through to the arithmetic
+			-- generators (hex/binary/normal are still available via the random
+			-- format pick), so obfuscation power is barely affected (one of
+			-- four representations is skipped for integers only).
 			if val == math.floor(val) then
 				return Ast.NumberExpression(val)
 			end
@@ -265,3 +304,4 @@ function NumbersToExpressions:apply(ast)
 end
 
 return NumbersToExpressions
+
