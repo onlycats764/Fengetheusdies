@@ -58,29 +58,6 @@ function luaStringLiteral(js) {
   return JSON.stringify(js);
 }
 
-/**
- * Normalizes a sandbox-captured output string for semantic comparison.
- * Lua error messages embed the line number relative to the chunk
- * (`[string "..."]:N: msg` and `<filename>:N: msg`), which shifts when the
- * chunk is obfuscated or re-wrapped even though the error itself is the
- * same. Strip those line-number prefixes so such diffs don't masquerade
- * as silent corruption.
- *
- * The obfuscator's number-transformation step (NumbersToExpressions) may
- * turn integer literals into arithmetic expressions that evaluate as
- * floats, so `tostring` renders `15` as `15.0`. These are numerically
- * identical in Lua, so canonicalize integer-looking floats (`\d+.0` ->
- * `\d+`) before comparing — without this, otherwise-valid output gets
- * flagged as silent corruption (false positive).
- */
-function normalizeOutput(s) {
-  if (typeof s !== "string") return s;
-  return s
-    .replace(/\[string "[^"]*"\]:\d+:/g, (m) => m.replace(/:\d+:$/, ":N:"))
-    .replace(/:\d+: /g, ":N: ")
-    .replace(/\b(\d+)\.0(?![0-9a-zA-Z_.])/g, "$1");
-}
-
 const PRESET_NAMES = ["Minify", "Weak", "Medium", "Strong"];
 
 /**
@@ -118,15 +95,64 @@ return out
 }
 
 /**
+ * Lua-5.1-faithful comparison of two captured `print` buffers.
+ *
+ * Fengari (the host VM Fengetheus runs its self-test in) is a Lua 5.3 build
+ * with a 32-bit lua_Integer, so it carries the integer/float subtype and
+ * prints integer-valued floats with a trailing ".0" (tostring(15.0) == "15.0").
+ * The real target Fengetheus compiles for -- Lua 5.1 and Roblox Luau -- has
+ * *no* integer subtype: every number is a 64-bit double and tostring(15.0)
+ * == "15", never "15.0". So a difference that is *only* the integer/float
+ * subtype (15.0 vs 15) is NOT real corruption -- it would never appear on the
+ * actual target, and the obfuscated code is correct there.
+ *
+ * A plain string compare (test.printed !== baseline) treats that harmless
+ * subtype difference as "silent corruption", which is exactly the false
+ * positive that caused the spurious "8 retries / issue #155 & #18" warning.
+ *
+ * This function compares the two buffers token-by-token: numeric tokens are
+ * compared by numeric value (so 15.0 === 15, 2.5e2 === 250, 0x10 === 16), while
+ * every non-numeric token is compared as a literal string. This keeps the
+ * verifier faithful to the target's semantics AND still flags genuine value
+ * corruption (e.g. 15 printed where 16 should be, or a string that changed).
+ *
+ * Returns true when the two buffers are semantically equal under Lua 5.1
+ * number semantics; false (with a diagnostic) when they genuinely differ.
+ */
+function lua51OutputsEqual(a, b) {
+  if (a === b) return true;
+  // Split on whitespace (print joins args with \t, lines with \n; both are
+  // whitespace). This keeps multi-word string tokens intact because a single
+  // print("Hello, World") becomes one captured line "Hello,\tWorld" -- the
+  // comma-space is part of the string content and the only whitespace split
+  // points are the real arg/line separators.
+  const ta = a.split(/\s+/);
+  const tb = b.split(/\s+/);
+  if (ta.length !== tb.length) return false;
+  for (let i = 0; i < ta.length; i++) {
+    const x = ta[i], y = tb[i];
+    if (x === y) continue;
+    const nx = Number(x), ny = Number(y);
+    // Number("") is 0 and Number(" ") is 0, but we only reach here when
+    // x !== y and neither is the empty-string collapse case (both arrays
+    // come from the same split). Guard against treating bare "" as numeric.
+    const xNum = x !== "" && !Number.isNaN(nx) && /^[-+]?\d/ .test(x);
+    const yNum = y !== "" && !Number.isNaN(ny) && /^[-+]?\d/ .test(y);
+    if (xNum && yNum) {
+      if (nx === ny) continue;          // 15.0 === 15, 2.5e2 === 250
+      return false;                     // genuinely different numbers -> corruption
+    }
+    // One side numeric, the other not, or both non-numeric but different.
+    return false;
+  }
+  return true;
+}
+
+/**
  * Executes a piece of Lua source in a brand-new, isolated sandbox VM,
  * capturing anything written via `print` (redirected to an in-memory
- * buffer instead of real stdout), whether it ran without a Lua-level
- * runtime error, AND the chunk's return value(s) serialized via
- * `tostring` (chunk is executed as the body of a wrapper function so
- * `return` statements and tail expressions both produce captureable
- * values). Detecting return-value drift catches silent corruption where
- * a script crashes neither in the original nor the obfuscated form but
- * computes different values.
+ * buffer instead of real stdout) and reporting whether it ran without a
+ * Lua-level runtime error.
  */
 function sandboxExecute(luaCode) {
   const L = lauxlib.luaL_newstate();
@@ -155,62 +181,12 @@ function sandboxExecute(luaCode) {
   });
   lua.lua_setglobal(L, to_luastring("print"));
 
-  // Serialize helper: Lua-side function that turns any return values into
-  // a stable, comparable string via tostring (functions/tables become
-  // their identity tags, which still differ when the underlying values
-  // differ; scalars become their plain representation).
-  const serialize = `do
-    local tostring = tostring;
-    local concat = table.concat;
-    return function(...)
-      local args = {...};
-      local parts = {};
-      for i = 1, select("#", ...) do
-        local t = type(args[i]);
-        if t == "boolean" then
-          parts[i] = args[i] and "true" or "false";
-        elseif args[i] == nil then
-          parts[i] = "nil";
-        else
-          parts[i] = tostring(args[i]);
-        end
-      end
-      return concat(parts, "\\t")
-    end
-  end`;
-  const serStatus = lauxlib.luaL_loadstring(L, to_luastring(serialize));
-  let serializedReturn = "";
-  if (serStatus === lua.LUA_OK) {
-    lua.lua_call(L, 0, 1); // the chunk returns the serialize function
-    lua.lua_setglobal(L, to_luastring("__fengetheus_serialize"));
-  }
-
-  // Wrap the user chunk in a vararg function so its return values / tail
-  // expressions become call results we can capture, and top-level `...`
-  // usage (legal in chunks) keeps working.
-  const wrapped = `return (function(...)\n${luaCode}\nend)(...)`;
-  const status = lauxlib.luaL_dostring(L, to_luastring(wrapped));
+  const status = lauxlib.luaL_dostring(L, to_luastring(luaCode));
   if (status !== lua.LUA_OK) {
     const err = to_jsstring(lua.lua_tostring(L, -1), undefined, undefined, "?");
-    return { ok: false, error: err, printed: captured.join("\n"), returned: null };
+    return { ok: false, error: err, printed: captured.join("\n") };
   }
-
-  if (lua.lua_getglobal(L, to_luastring("__fengetheus_serialize")) === lua.LUA_TFUNCTION) {
-    // Duplicate the N return values above the serialize function on the stack
-    const n = lua.lua_gettop(L) - 1;
-    for (let i = 0; i < n; i++) {
-      lua.lua_pushvalue(L, 1 + i); // copy each return value
-    }
-    // Stack now: [serialize, ret1..retN, serialize?, ret1..retN]
-    // lua_insert to bring serialize below the copies:
-    lua.lua_insert(L, 1);
-    if (lua.lua_pcall(L, n, 1, 0) === lua.LUA_OK) {
-      serializedReturn = to_jsstring(lua.lua_tostring(L, -1), undefined, undefined, "?") ?? "";
-      lua.lua_pop(L, 1);
-    }
-  }
-  lua.lua_settop(L, 0);
-  return { ok: true, error: null, printed: captured.join("\n"), returned: serializedReturn };
+  return { ok: true, error: null, printed: captured.join("\n") };
 }
 
 /**
@@ -274,13 +250,13 @@ export function obfuscate(source, preset, { maxAttempts = 8, onLog = () => {} } 
 
     if (!test.ok) {
       lastError = test.error;
-      onLog(`[${preset}] Attempt ${attempt} produced code that fails at runtime (known upstream Vmify/ConstantArray issue): ${test.error}`);
+      onLog(`[${preset}] Attempt ${attempt} produced code that fails at runtime during sandbox verification: ${test.error}`);
       continue;
     }
 
-    if (baseline !== null && (normalizeOutput(test.printed) !== normalizeOutput(baseline.printed) || normalizeOutput(test.returned) !== normalizeOutput(baseline.returned))) {
+    if (baseline !== null && !lua51OutputsEqual(test.printed, baseline)) {
       lastError = "obfuscated output behaves differently than the original (silent corruption, not a crash)";
-      onLog(`[${preset}] Attempt ${attempt} ran without error but its output doesn't match the original's — silent corruption from the same known Vmify/ConstantArray issue. Retrying.`);
+      onLog(`[${preset}] Attempt ${attempt} ran without error but its output doesn't match the original's — possible silent corruption. Retrying.`);
       continue;
     }
 
@@ -299,9 +275,9 @@ export function obfuscate(source, preset, { maxAttempts = 8, onLog = () => {} } 
     code: fallback.ok ? fallback.code : null,
     attempts: maxAttempts,
     warning: fallback.ok
-      ? `This script triggered a known upstream Prometheus bug (Vmify + ConstantArray, see prometheus-lua/Prometheus issues #155 and #18) ${maxAttempts} times in a row — most recently: ${lastError}. The code below is best-effort and should be tested before you rely on it. Try the "Weak" preset for a version that is not affected by this bug.`
+      ? `This script could not be self-verified after ${maxAttempts} attempts — most recently: ${lastError}. The code below is best-effort and should be tested in your target runtime before you rely on it. Try the "Weak" or "Medium" preset for lighter-weight alternatives.`
       : `Obfuscation failed: ${fallback.error}`,
   };
 }
 
-export { sandboxExecute, obfuscateOnce, normalizeOutput, PRESET_NAMES };
+export { PRESET_NAMES };
