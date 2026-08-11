@@ -31,7 +31,7 @@
     <p>
       Fengetheus is a Lua obfuscator built on top of the real Prometheus compiler &mdash; all 81 <code>.lua</code> source files, unmodified except for
       a handful of small host-compatibility patches (see <a href="./PATCHES.md" target="_blank">PATCHES.md</a>) &mdash;
-      running inside <a href="https://fengari.io" target="_blank" rel="noopener">Fengari</a>, a real Lua 5.3 VM compiled to JavaScript.
+      running inside <a href="https://github.com/Xyraniz/LuaNode-VM" target="_blank" rel="noopener">LuaNode-VM</a>, a real Lua 5.3 VM compiled to JavaScript with true 64-bit integer support.
       Your code is parsed, transformed, and re-emitted by the actual obfuscator. Nothing is sent to a server.
     </p>
   </section>
@@ -96,7 +96,7 @@
     <div class="about-grid">
       <div>
         <h3>A real Lua VM, in JS</h3>
-        <p>Fengari isn't a Lua-to-JS transpiler &mdash; it's a line-for-line port of the PUC-Rio Lua 5.3 VM. The obfuscator's compiler, parser, and code generator run as actual Lua bytecode, executing inside that VM, inside your tab.</p>
+        <p>LuaNode-VM isn't a Lua-to-JS transpiler &mdash; it's a line-for-line port of the PUC-Rio Lua 5.3 VM, carrying true 64-bit Lua integers via BigInt. The obfuscator's compiler, parser, and code generator run as actual Lua bytecode, executing inside that VM, inside your tab.</p>
       </div>
       <div>
         <h3>Self-verifying output</h3>
@@ -112,7 +112,7 @@
 
 <footer>
   Fengatheus &middot; based on <a href="https://github.com/prometheus-lua/Prometheus" target="_blank" rel="noopener">Prometheus by Elias Oelschner</a> &middot;
-  Lua-in-JS by <a href="https://fengari.io" target="_blank" rel="noopener">Fengari</a>
+  Lua-in-JS by <a href="https://github.com/Xyraniz/LuaNode-VM" target="_blank" rel="noopener">LuaNode-VM</a>
 </footer>
 
 <script src="./dist/bundle.js"></script>

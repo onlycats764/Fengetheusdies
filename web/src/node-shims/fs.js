@@ -1,5 +1,5 @@
 // Minimal browser stand-in for Node's "fs" module.
-// Only reached by fengari code paths for reading Lua source files off disk
+// Only reached by the host VM code paths for reading Lua source files off disk
 // (lauxlib.js loadfile) and native module loading (loadlib.js) — Fengetheus
 // never does either: source comes from the textarea, and every Lua module
 // is preloaded in-memory via package.preload (see engine.js). These stubs

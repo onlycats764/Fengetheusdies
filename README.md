@@ -6,7 +6,9 @@ real [Prometheus](https://github.com/prometheus-lua/Prometheus) Lua
 obfuscator: it embeds Prometheus's actual `.lua` source (all 81 files,
 essentially unmodified — see [PATCHES.md](./PATCHES.md) for the small
 host-compatibility patches) and runs it inside
-[Fengari](https://fengari.io), a real Lua 5.3 VM compiled to JavaScript.
+[LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM), a real Lua 5.3 VM
+implemented in JavaScript with true 64-bit integer support via BigInt (a
+specialized fork of [Fengari](https://fengari.io)).
 
 Live at: `(https://xyraniz.github.io/Fengetheus/)` once deployed (see below).
 
@@ -40,15 +42,15 @@ web/
   index.html                  The page
   style.css                   Styling
   src/
-    engine.js                 Fengari + Prometheus wiring, self-test/retry logic
+    engine.js                 LuaNode-VM + Prometheus wiring, self-test/retry logic
     app.js                    UI wiring, file attach / drag & drop, Worker lifecycle
-    worker.js                 Worker entrypoint; runs Fengari/Prometheus off the UI thread
+    worker.js                 Worker entrypoint; runs LuaNode-VM/Prometheus off the UI thread
     lua-modules.generated.js  (generated) all of src/ embedded as a JS object
   scripts/
     build-lua-modules.mjs     Generates lua-modules.generated.js from src/
   dist/
     bundle.js                 (generated) UI bundle
-    worker.js                 (generated) Fengari/Prometheus Worker bundle
+    worker.js                 (generated) LuaNode-VM/Prometheus Worker bundle
 test/
   regression.mjs              Regression test: obfuscates representative scripts
                                with every preset and cross-checks against lua5.3
@@ -67,7 +69,7 @@ npm run build   # embeds Lua and bundles both the UI and Worker entrypoints
 Then just open `web/index.html` in a browser (or serve the `web/` folder with
 any static file server — no build step is needed at request time, everything
 is pre-bundled). The UI sends work to `web/dist/worker.js`, so the tab remains
-responsive while Fengari processes large inputs.
+responsive while LuaNode-VM processes large inputs.
 
 To re-run the regression test (needs a `lua5.3` binary on your `PATH` —
 `apt-get install lua5.3` on Debian/Ubuntu):
@@ -109,7 +111,11 @@ unmodified.
   satisfy it).
 - Fengetheus's own code (the web playground, build scripts, file-attach UI,
   self-verification engine) is MIT.
-- [Fengari](https://fengari.io) — Lua 5.3 VM in JavaScript (MIT).
+- [LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM) — Lua 5.3 VM in
+  JavaScript with true 64-bit integer support via BigInt (MIT), a fork of
+  [Fengari](https://fengari.io) (also MIT). LuaNode-VM is vendored directly
+  under `vendor/luanode-vm/` and exposed to the rest of the project as the
+  `fengari` package alias (drop-in compatible API).
 
 See [CHANGELOG.md](./CHANGELOG.md) for what's changed since the original
 Prometheus-in-the-browser build this was forked from.

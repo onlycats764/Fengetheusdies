@@ -1,0 +1,418 @@
+"use strict";
+
+const {
+    LUA_OPLT,
+    LUA_TNUMBER,
+    lua_compare,
+    lua_gettop,
+    lua_isinteger,
+    lua_isnoneornil,
+    lua_pushboolean,
+    lua_pushinteger,
+    lua_pushliteral,
+    lua_pushnil,
+    lua_pushnumber,
+    lua_pushvalue,
+    lua_setfield,
+    lua_settop,
+    lua_tointeger,
+    lua_tointegerx,
+    lua_type
+} = require('../lua.js');
+const {
+    luaL_argcheck,
+    luaL_argerror,
+    luaL_checkany,
+    luaL_checkinteger,
+    luaL_checknumber,
+    luaL_error,
+    luaL_newlib,
+    luaL_optnumber
+} = require('../lauxlib.js');
+const {
+    LUA_MAXINTEGER,
+    LUA_MININTEGER,
+    lua_numbertointeger
+} = require('../luaconf.js');
+const { to_luastring } = require("../fengaricore.js");
+/*
+** True 64-bit integer primitives (hybrid Number/BigInt). Used by math.abs,
+** math.fmod, math.ult and the random-integer range check so that the full
+** int64 range behaves correctly instead of being silently truncated to
+** 32 bits by JS bitwise operators.
+*/
+const I64 = require('../vm/lint64.js');
+
+let rand_state;
+/*
+ * Improved pseudo-random number generator.
+ *
+ * The original implementation used a 32-bit glibc-style Linear Congruential
+ * Generator (LCG) with the parameters (a=1103515245, c=12345, m=2^31). LCGs
+ * suffer from a short period (only 2^31), poor distribution in the lower
+ * bits, and well-known serial correlations, which can produce undesirable
+ * patterns in simulations.
+ *
+ * This replacement uses a 32-bit variant of xoshiro128** (by David Blackman
+ * and Sebastiano Vigna), a xorshift-style generator with a 2^128 period that
+ * passes the BigCrush battery of statistical tests. The state is seeded from
+ * a single 32-bit integer using SplitMix32 (a good mixing function), which
+ * avoids the weak initial states that plague LCGs.
+ *
+ * Reference: http://xoshiro.di.unimi.it/
+ */
+const rotl = (x, k) => ((x << k) | (x >>> (32 - k))) >>> 0;
+
+const splitmix32_seed = function(seed) {
+    /* SplitMix32 to expand a single 32-bit seed into 4 well-mixed state words */
+    let z = (seed >>> 0) || 1;
+    const out = new Array(4);
+    for (let i = 0; i < 4; i++) {
+        z = (z + 0x9E3779B9) >>> 0;
+        let t = z;
+        t = Math.imul(t ^ (t >>> 16), 0x85EBCA6B);
+        t = Math.imul(t ^ (t >>> 13), 0xC2B2AE35);
+        out[i] = (t ^ (t >>> 16)) >>> 0;
+    }
+    return out;
+};
+
+let rand_state_words = null;  /* xoshiro128** state: 4 x 32-bit words */
+
+const l_rand = function() {
+    if (rand_state_words === null) {
+        /* Lazy seed from the legacy single-word state (kept for compatibility) */
+        rand_state_words = splitmix32_seed(rand_state === void 0 ? (Math.random() * 0x100000000) >>> 0 : (rand_state >>> 0) || 1);
+    }
+    const s = rand_state_words;
+    const result = (Math.imul(rotl(s[1] * 5, 7), 9)) >>> 0;
+    const t = (s[1] << 9) >>> 0;
+    s[2] ^= s[0];
+    s[3] ^= s[1];
+    s[1] ^= s[2];
+    s[0] ^= s[3];
+    s[2] ^= t;
+    s[3] = rotl(s[3], 11);
+    return result;
+};
+
+const l_srand = function(x) {
+    rand_state = (x | 0) || 1;
+    if (rand_state < 0) rand_state = (rand_state + 0x100000000) >>> 0;
+    /* Reset the xoshiro state so the next l_rand re-seeds from the new value */
+    rand_state_words = splitmix32_seed(rand_state);
+};
+
+const math_random = function(L) {
+    let low, up;
+    /* use Math.random until randomseed is called */
+    let r = (rand_state_words === null && rand_state === void 0) ? Math.random() : (l_rand() / 0x100000000);
+    switch (lua_gettop(L)) {  /* check number of arguments */
+        case 0:
+            lua_pushnumber(L, r);  /* Number between 0 and 1 */
+            return 1;
+        case 1: {
+            low = 1;
+            up = luaL_checkinteger(L, 1);
+            break;
+        }
+        case 2: {
+            low = luaL_checkinteger(L, 1);
+            up = luaL_checkinteger(L, 2);
+            break;
+        }
+        default: return luaL_error(L, "wrong number of arguments");
+    }
+
+    /* random integer in the interval [low, up] */
+    luaL_argcheck(L, I64.le(low, up), 1, "interval is empty");
+    /*
+    ** "interval too large": the width (up - low) must fit within the
+    ** int64 range. Equivalent to: low >= 0 OR up <= MAX_INT + low.
+    */
+    {
+        let widthOk = I64.le(0, low) || I64.le(up, I64.add(LUA_MAXINTEGER, low));
+        luaL_argcheck(L, widthOk, 1, "interval too large");
+    }
+
+    /*
+    ** The interval width (up - low + 1) must fit in a JS Number for the
+    ** random draw. For 64-bit integer bounds this is fine in practice
+    ** (a random range larger than 2^53 is meaningless). Convert the
+    ** bounds to Number here so the arithmetic stays in JS Number land.
+    */
+    let lowN = I64.toFloat(low);
+    let upN = I64.toFloat(up);
+    r *= (upN - lowN) + 1;
+    let result = Math.floor(r) + lowN;
+    /*
+    ** If the bounds were outside the safe range, push back as a hybrid
+    ** int via lua_pushinteger (which accepts BigInt). Otherwise the
+    ** Number result is already an exact integer.
+    */
+    lua_pushinteger(L, I64.normalize(result));
+    return 1;
+};
+
+const math_randomseed = function(L) {
+    l_srand(luaL_checknumber(L, 1));
+    l_rand(); /* discard first value to avoid undesirable correlations */
+    return 0;
+};
+
+const math_abs = function(L) {
+    if (lua_isinteger(L, 1)) {
+        /*
+        ** Integer absolute value with 64-bit wraparound. The notable case
+        ** is math.abs(math.mininteger): -(-2^63) would be 2^63, which is
+        ** outside the int64 range, so it wraps around to math.mininteger
+        ** again — exactly like PUC-Rio Lua. The old `(-n)|0` truncated to
+        ** 32 bits and gave wrong results for any |n| >= 2^31.
+        */
+        let n = lua_tointeger(L, 1);
+        if (I64.lt(n, 0)) n = I64.neg(n);
+        lua_pushinteger(L, n);
+    }
+    else
+        lua_pushnumber(L, Math.abs(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_sin = function(L) {
+    lua_pushnumber(L, Math.sin(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_cos = function(L) {
+    lua_pushnumber(L, Math.cos(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_tan = function(L) {
+    lua_pushnumber(L, Math.tan(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_asin = function(L) {
+    lua_pushnumber(L, Math.asin(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_acos = function(L) {
+    lua_pushnumber(L, Math.acos(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_atan = function(L) {
+    let y = luaL_checknumber(L, 1);
+    let x = luaL_optnumber(L, 2, 1);
+    lua_pushnumber(L, Math.atan2(y, x));
+    return 1;
+};
+
+const math_toint = function(L) {
+    let n = lua_tointegerx(L, 1);
+    if (n !== false)
+        lua_pushinteger(L, n);
+    else {
+        luaL_checkany(L, 1);
+        lua_pushnil(L);  /* value is not convertible to integer */
+    }
+    return 1;
+};
+
+const pushnumint = function(L, d) {
+    let n = lua_numbertointeger(d);
+    if (n !== false)  /* does 'd' fit in an integer? */
+        lua_pushinteger(L, n);  /* result is integer */
+    else
+        lua_pushnumber(L, d);  /* result is float */
+};
+
+const math_floor = function(L) {
+    if (lua_isinteger(L, 1))
+        lua_settop(L, 1);
+    else
+        pushnumint(L, Math.floor(luaL_checknumber(L, 1)));
+
+    return 1;
+};
+
+const math_ceil = function(L) {
+    if (lua_isinteger(L, 1))
+        lua_settop(L, 1);
+    else
+        pushnumint(L, Math.ceil(luaL_checknumber(L, 1)));
+
+    return 1;
+};
+
+const math_sqrt = function(L) {
+    lua_pushnumber(L, Math.sqrt(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_ult = function(L) {
+    /*
+    ** math.ult(a, b): unsigned 64-bit comparison, i.e. is a < b when both
+    ** are interpreted as unsigned 64-bit integers? The old signed-comparison
+    ** trick `(a>=0)?(b<0||a<b):(b<0&&a<b)` only works for fixed-width
+    ** two's-complement and breaks for the hybrid Number/BigInt values that
+    ** large integers now carry. Route through lint64.ult, which masks both
+    ** operands to uint64 and compares them exactly.
+    */
+    let a = luaL_checkinteger(L, 1);
+    let b = luaL_checkinteger(L, 2);
+    lua_pushboolean(L, I64.ult(a, b));
+    return 1;
+};
+
+const math_log = function(L) {
+    let x = luaL_checknumber(L, 1);
+    let res;
+    if (lua_isnoneornil(L, 2))
+        res = Math.log(x);
+    else {
+        let base = luaL_checknumber(L, 2);
+        if (base === 2)
+            res = Math.log2(x);
+        else if (base === 10)
+            res = Math.log10(x);
+        else
+            res = Math.log(x)/Math.log(base);
+    }
+    lua_pushnumber(L, res);
+    return 1;
+};
+
+const math_exp = function(L) {
+    lua_pushnumber(L, Math.exp(luaL_checknumber(L, 1)));
+    return 1;
+};
+
+const math_deg = function(L) {
+    lua_pushnumber(L, luaL_checknumber(L, 1) * (180 / Math.PI));
+    return 1;
+};
+
+const math_rad = function(L) {
+    lua_pushnumber(L, luaL_checknumber(L, 1) * (Math.PI / 180));
+    return 1;
+};
+
+const math_min = function(L) {
+    let n = lua_gettop(L);  /* number of arguments */
+    let imin = 1;  /* index of current minimum value */
+    luaL_argcheck(L, n >= 1, 1, "value expected");
+    for (let i = 2; i <= n; i++){
+        if (lua_compare(L, i, imin, LUA_OPLT))
+            imin = i;
+    }
+    lua_pushvalue(L, imin);
+    return 1;
+};
+
+const math_max = function(L) {
+    let n = lua_gettop(L);  /* number of arguments */
+    let imax = 1;  /* index of current maximum value */
+    luaL_argcheck(L, n >= 1, 1, "value expected");
+    for (let i = 2; i <= n; i++){
+        if (lua_compare(L, imax, i, LUA_OPLT))
+            imax = i;
+    }
+    lua_pushvalue(L, imax);
+    return 1;
+};
+
+const math_type = function(L) {
+    if (lua_type(L, 1) === LUA_TNUMBER) {
+        if (lua_isinteger(L, 1))
+            lua_pushliteral(L, "integer");
+        else
+            lua_pushliteral(L, "float");
+    } else {
+        luaL_checkany(L, 1);
+        lua_pushnil(L);
+    }
+    return 1;
+};
+
+const math_fmod = function(L) {
+    if (lua_isinteger(L, 1) && lua_isinteger(L, 2)) {
+        /*
+        ** math.fmod for integers: truncated-division remainder (result
+        ** takes the sign of the dividend), per C fmod / Lua 5.3. The old
+        ** `(a % d)|0` truncated the result to 32 bits, which corrupted
+        ** any remainder >= 2^31 and broke for 64-bit operands. We compute
+        ** the remainder via BigInt to keep full int64 precision; this
+        ** matches the truncated (not floored) semantics of fmod.
+        */
+        let a = lua_tointeger(L, 1);
+        let d = lua_tointeger(L, 2);
+        if (I64.eq(d, 0)) {
+            luaL_argerror(L, 2, "zero");
+        } else {
+            /* MIN_INT64 fmod -1 == 0 (no overflow for fmod). */
+            lua_pushinteger(L, I64.shrink(I64.toBigInt(a) % I64.toBigInt(d)));
+        }
+    } else {
+        let a = luaL_checknumber(L, 1);
+        let b = luaL_checknumber(L, 2);
+        lua_pushnumber(L, a%b);
+    }
+    return 1;
+};
+
+const math_modf = function(L) {
+    if (lua_isinteger(L, 1)) {
+        lua_settop(L, 1);  /* number is its own integer part */
+        lua_pushnumber(L, 0);  /* no fractional part */
+    } else {
+        let n = luaL_checknumber(L, 1);
+        let ip = n < 0 ? Math.ceil(n) : Math.floor(n);
+        pushnumint(L, ip);
+        lua_pushnumber(L, n === ip ? 0 : n - ip);
+    }
+    return 2;
+};
+
+const mathlib = {
+    "abs":        math_abs,
+    "acos":       math_acos,
+    "asin":       math_asin,
+    "atan":       math_atan,
+    "ceil":       math_ceil,
+    "cos":        math_cos,
+    "deg":        math_deg,
+    "exp":        math_exp,
+    "floor":      math_floor,
+    "fmod":       math_fmod,
+    "log":        math_log,
+    "max":        math_max,
+    "min":        math_min,
+    "modf":       math_modf,
+    "rad":        math_rad,
+    "random":     math_random,
+    "randomseed": math_randomseed,
+    "sin":        math_sin,
+    "sqrt":       math_sqrt,
+    "tan":        math_tan,
+    "tointeger":  math_toint,
+    "type":       math_type,
+    "ult":        math_ult
+};
+
+const luaopen_math = function(L) {
+    luaL_newlib(L, mathlib);
+    lua_pushnumber(L, Math.PI);
+    lua_setfield(L, -2, to_luastring("pi", true));
+    lua_pushnumber(L, Infinity);
+    lua_setfield(L, -2, to_luastring("huge", true));
+    lua_pushinteger(L, LUA_MAXINTEGER);
+    lua_setfield(L, -2, to_luastring("maxinteger", true));
+    lua_pushinteger(L, LUA_MININTEGER);
+    lua_setfield(L, -2, to_luastring("mininteger", true));
+    return 1;
+};
+
+module.exports.luaopen_math = luaopen_math;

@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# npm
+package-lock.json
+
+# Build output is committed (static site has no backend), but keep these out:
+*.log
+
+# Temporary / scratch files
+test-bisect-tmp.mjs
+test/suite-results.json
+/tmp/

@@ -47,34 +47,37 @@ NumbersToExpressions.SettingsDescriptor = {
 	},
 }
 
--- Fengari (the JS-hosted Lua 5.3 VM Fengetheus runs inside) is built with a
--- 32-bit lua_Integer: LUA_MAXINTEGER = 2147483647 (2^31 - 1),
--- LUA_MININTEGER = -2147483648 (-2^31). Any integer literal outside this
--- range is parsed by Fengari as a *float* (e.g. 3457111845 -> 3457111845.0).
+-- The host VM Fengetheus runs inside is LuaNode-VM, a Lua 5.3 VM built with a
+-- true 64-bit lua_Integer (LUA_MAXINTEGER = 9223372036854775807 (2^63 - 1),
+-- LUA_MININTEGER = -9223372036854775808 (-2^63)). The previous host (Fengari)
+-- used a 32-bit lua_Integer, which is why this step originally capped operands
+-- to the 32-bit signed range. That cap is kept here as a conservative
+-- host-faithfulness guard: it never produces an incorrect result on the
+-- 64-bit-double target, it only bounds operand magnitude.
 --
 -- The real target runtimes Fengetheus compiles for (Lua 5.1 and Roblox Luau)
 -- have *no* integer subtype at all -- every number is a 64-bit double, and
 -- tostring/`..` of an integer-valued double never appends ".0"
--- (tostring(15.0) == "15"). So an obfuscated literal that Fengari stores as
+-- (tostring(15.0) == "15"). So an obfuscated literal that the host stores as
 -- a float is still perfectly correct on the target.
 --
--- The problem is the *self-test* in web/src/engine.js: it executes the
--- obfuscated output inside this same 32-bit-int Fengari VM and string-compares
--- the printed output against the original's. If NumbersToExpressions emits a
--- literal that Fengari turns into a float, the float subtype can leak into the
--- user's own arithmetic (e.g. a `for` loop counter), and Fengari then prints
--- `15.0` where the original prints `15` -- a *false* "silent corruption" that
--- has nothing to do with the real #155/#18 upstream bug and would not happen
--- on the actual target.
+-- The remaining concern is the *self-test* in web/src/engine.js: it executes
+-- the obfuscated output inside this same host VM and string-compares the
+-- printed output against the original's. If NumbersToExpressions emits a
+-- literal that the host turns into a float, the float subtype can leak into
+-- the user's own arithmetic (e.g. a `for` loop counter), and the host then
+-- prints `15.0` where the original prints `15` -- a *false* "silent
+-- corruption" that has nothing to do with the real #155/#18 upstream bug and
+-- would not happen on the actual target.
 --
--- Fix: keep every numeric operand this step emits within Fengari's 32-bit
--- signed-integer range, so integer inputs stay integer-typed under the host
--- VM. This is a host-faithfulness constraint only -- it does not weaken the
--- obfuscation (the operands are still large, randomized, and the modulo /
--- add / sub decompositions are unchanged in structure), it merely caps their
--- magnitude so the 32-bit-int host does not silently demote them to floats.
-local LUA_MAXINTEGER = 2147483647      -- 2^31 - 1  (Fengari's lua_Integer max)
-local LUA_MININTEGER = -2147483648     -- -2^31     (Fengari's lua_Integer min)
+-- Fix: keep every numeric operand this step emits within a safe signed-integer
+-- range, so integer inputs stay integer-typed under the host VM. This is a
+-- host-faithfulness constraint only -- it does not weaken the obfuscation
+-- (the operands are still large, randomized, and the modulo / add / sub
+-- decompositions are unchanged in structure), it merely caps their magnitude
+-- so the host VM does not silently demote them to floats.
+local LUA_MAXINTEGER = 2147483647      -- 2^31 - 1  (conservative 32-bit cap, kept from the Fengari era)
+local LUA_MININTEGER = -2147483648     -- -2^31     (conservative 32-bit cap, kept from the Fengari era)
 
 -- True only when v fits Fengari's 32-bit lua_Integer, so a literal of v is
 -- parsed as an integer (not a float) by the host VM.

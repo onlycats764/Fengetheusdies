@@ -2,15 +2,17 @@
 
 Fengetheus embeds the real [Prometheus](https://github.com/prometheus-lua/Prometheus)
 Lua obfuscator source (all 81 `.lua` files under `src/`), running inside
-[Fengari](https://fengari.io) — a real Lua 5.3 VM compiled to JavaScript.
+[LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM) — a real Lua 5.3 VM
+implemented in JavaScript with true 64-bit integer support via BigInt (a
+specialized fork of [Fengari](https://fengari.io)).
 
 Prometheus was written assuming it runs under a real, on-disk Lua 5.1
 interpreter (as its own CLI, or `require`d from a normal Lua project).
-Running it inside a JS-hosted VM with no filesystem, and with Fengari's
+Running it inside a JS-hosted VM with no filesystem, and with the host VM's
 Lua-5.3-flavored standard library, needed a handful of small, mechanical
 compatibility patches. **No obfuscation logic was changed** — every patch
 either adds a `nil`-guard around something that assumes a real OS process,
-or polyfills a stdlib function Fengari doesn't ship.
+or polyfills a stdlib function the host VM doesn't ship.
 
 ## 1. `src/prometheus.lua` — skip `package.path` rewrite when there's no real file path
 
@@ -29,7 +31,7 @@ end
 
 `script_path()` resolves Prometheus's own location on disk via
 `debug.getinfo(2, "S").source` so it can add itself to `package.path`. Inside
-Fengari there is no disk and no real chunk filename, so the pattern match
+the host VM there is no disk and no real chunk filename, so the pattern match
 returns `nil` and the original code would try to concatenate `nil`. Every
 module in this build is registered directly via `package.preload`, so the
 `package.path` mutation is unnecessary here anyway — this patch just makes it
@@ -57,7 +59,7 @@ math.log10 = math.log10 or function(x)
 end
 ```
 
-`math.log10` was removed from Lua's standard library in 5.2+; Fengari
+`math.log10` was removed from Lua's standard library in 5.2+; the host VM
 implements the newer stdlib shape. `NumbersToExpressions.lua` uses it to
 pick a compact literal representation for large numbers.
 
@@ -98,38 +100,36 @@ path through `Vmify`/`ConstantArray`. `maxAttempts` was also raised from 5 to
 8 by default, since each additional attempt is cheap and meaningfully raises
 the odds of landing on a clean, self-verified result.
 
-## 6. `node_modules/fengari` — two browser-compatibility fixes (applied via `patch-package`, see `patches/fengari+0.1.5.patch`)
+## 6. Host VM browser-compatibility — now provided natively by LuaNode-VM (vendored under `vendor/luanode-vm/`)
 
-Fengari has no `"browser"` field in its `package.json` — it ships one
-Node-targeted source tree, and (correctly) uses `typeof process !==
-"undefined"` throughout as its own "are we running in Node" detector,
-taking a browser-safe fallback path almost everywhere. Two spots didn't
-follow that pattern:
+Fengetheus previously depended on the `fengari` npm package and applied two
+browser-compatibility fixes to it via `patch-package`
+(`patches/fengari+0.1.5.patch`), because upstream Fengari had no `"browser"`
+field and two spots read Node-only globals unguarded:
 
-**`src/luaconf.js`** read `process.env.FENGARICONF` completely unguarded,
-at module-evaluation time — the very first line fengari runs. In a real
-browser (`process` doesn't exist) this threw `ReferenceError: process is
-not defined` the instant `web/src/engine.js` did `import * as fengari from
-"fengari"`, which aborted its entire module graph before a single line of
-`web/src/app.js` executed — including the loop that populates the preset
-`<select>`. This was the root cause of the preset dropdown showing no
-options. Fixed by guarding the access with the same `typeof process !==
-"undefined"` check fengari uses everywhere else.
+**`src/luaconf.js`** read `process.env.FENGARICONF` completely unguarded at
+module-evaluation time. In a real browser (`process` doesn't exist) this threw
+`ReferenceError: process is not defined` the instant `web/src/engine.js` did
+`import * as fengari from "fengari"`, aborting its entire module graph before
+a single line of `web/src/app.js` executed — including the loop that populates
+the preset `<select>`.
 
-**`src/liolib.js`**'s `luaopen_io` — unlike every other Node-specific
-branch in fengari, this function had no guard at all: it always did
-`createstdfile(L, process.stdin, ...)` etc. directly. `luaopen_io` runs on
-every single `luaL_openlibs()` call, i.e. on every obfuscation attempt, so
-even after the `luaconf.js` fix, clicking "Obfuscate" would immediately
-throw the same class of error. Fixed by falling back to inert no-op stream
-stand-ins when `process` is undefined — this build never performs real
-file I/O (see `web/src/node-shims/fs.js`), so the fallback objects only
-need to exist, not do anything.
+**`src/liolib.js`**'s `luaopen_io` had no `process` guard at all and always did
+`createstdfile(L, process.stdin, ...)` directly; `luaopen_io` runs on every
+`luaL_openlibs()` call, so clicking "Obfuscate" would throw the same class of
+error.
 
-`package.json`'s `postinstall` script now runs `patch-package`
-automatically after every `npm install` (including in CI, see
-`.github/workflows/pages.yml`), so this patch is never silently lost by a
-future dependency bump.
+Fengetheus now runs on **[LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM)**
+(a specialized Fengari fork with true 64-bit integer support via BigInt),
+vendored directly under `vendor/luanode-vm/` and exposed to the rest of the
+project through the `fengari` package alias in `package.json`
+(`"fengari": "file:vendor/luanode-vm"`) — a drop-in compatible API
+(`lua`, `lauxlib`, `lualib`, `to_luastring`, `to_jsstring`). LuaNode-VM already
+ships both guards natively (`luaconf.js` and `liolib.js` both check
+`typeof process !== "undefined"` before touching Node globals), so the
+`patch-package` step and the `patches/` directory are no longer needed and have
+been removed. The browser bundle's `--external:readline-sync` flag was added to
+match LuaNode-VM's (guarded) `require('readline-sync')` in the debug library.
 
 ## 7. `src/prometheus/steps.lua` was completely empty
 
@@ -273,7 +273,7 @@ script as `silent corruption`: an obfuscated output that prints
 and the textual diff treated them as different. Separately, the regex
 that normalizes chunk-relative line numbers inside error messages
 (`[string "..."]:N: msg`) never actually matched anything: it expected
-the quote before the colon (`":\d+:`) while Fengari's real format places
+the quote before the colon (`":\d+:`) while the host VM's real format places
 the quote before the closing bracket (`"\]:\d+:`), so error-line
 normalization had been dead code since it was written.
 
@@ -313,7 +313,7 @@ value`, apparently at random and independent of the input script.
 
 **Root cause.** The constant folder in the parser accepts the result of a
 `pcall` over any operation between constant operands — including results that
-are `inf`, `-inf` or `NaN`. Under Fengari/Lua 5.3, a numerically-looking
+are `inf`, `-inf` or `NaN`. Under the host VM (Lua 5.3), a numerically-looking
 string generated by `RandomStrings.randomString()` inside AntiTamper's sanity
 check (e.g. `"67" ^ 16777216`) can legally fold to `Infinity`. That non-finite
 constant then travels through the AST until NumbersToExpressions tries to

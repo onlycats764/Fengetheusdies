@@ -11,6 +11,44 @@ before/after diffs and root-cause writeups behind each entry, see
 
 ---
 
+## Changed — Host VM migrated from Fengari to LuaNode-VM (true 64-bit integers)
+**Files:** `package.json`, `vendor/luanode-vm/` (new), `web/src/engine.js`, `src/prometheus/steps/NumbersToExpressions.lua`, `README.md`, `PATCHES.md`
+Fengetheus now runs Prometheus inside [LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM)
+instead of upstream Fengari. LuaNode-VM is a specialized Fengari fork that fixes
+a critical correctness flaw: Fengari represented Lua's `lua_Integer` with
+JavaScript `Number` (IEEE-754 double), capping integers at the 53-bit
+safe-integer range (`math.maxinteger` reported `9007199254740991` instead of
+`9223372036854775807`, with broken overflow wraparound). LuaNode-VM uses a
+hybrid Number/BigInt representation giving the full signed 64-bit range with
+correct two's-complement wraparound, matching PUC-Rio Lua 5.3 exactly.
+
+LuaNode-VM is vendored directly under `vendor/luanode-vm/` and exposed to the
+rest of the project through the `fengari` package alias
+(`"fengari": "file:vendor/luanode-vm"` in `package.json`) — a drop-in
+compatible API, so no source `import`/`require` statements had to change.
+The `patch-package` postinstall step and `patches/` directory were removed:
+LuaNode-VM already ships the two browser-compatibility guards
+(`luaconf.js`'s `process.env.FENGARICONF` guard and `liolib.js`'s
+`luaopen_io` `process` guard) that those patches previously added to Fengari.
+
+A lexer bug in LuaNode-VM was also fixed as part of this migration:
+`src/vm/llimits.js` exported `MAX_INT`/`MIN_INT` as BigInt (the real int64
+extremes), but the lexer uses them as plain-Number structural limits
+(`MAX_INT/2` for max lexical-element size, `++linenumber >= MAX_INT` for max
+source line, and `checklimit(..., MAX_INT, ...)` for max constructor items).
+`BigInt / Number` throws a `TypeError`, which crashed the parser with a
+status of `-1` and no error message whenever a string token grew the lexer
+buffer past its initial size — i.e. on most non-trivial Prometheus modules.
+`MAX_INT`/`MIN_INT` are now `Number.MAX_SAFE_INTEGER` / its negation
+(structural limits, as in upstream Fengari), while the true 64-bit integer
+extremes remain available as `MAX_INT64`/`MIN_INT64` (BigInt) for the VM's
+int64 overflow checks. The conservative 32-bit literal cap in
+`NumbersToExpressions.lua` is retained (it never produces an incorrect
+result on the 64-bit-double target; it only bounds operand magnitude), with
+its comments updated to reflect the new host. See PATCHES.md #6.
+
+---
+
 ## Fixed — Non-finite constant folding crash (Medium/Strong)
 **Files:** `src/prometheus/ast.lua`, `src/prometheus/steps/NumbersToExpressions.lua`
 Constant folding in the parser could fold `inf`/`-inf`/`NaN` results (e.g.
@@ -23,7 +61,7 @@ as defense-in-depth. See PATCHES.md #13.
 ## Fixed — False-positive corruption reports in the self-test
 **Files:** `web/src/engine.js`
 Two bugs in `normalizeOutput`: (1) the line-number-normalization regex never
-matched Fengari's actual error format, so it was dead code; (2) whole-integer
+matched the host VM's actual error format, so it was dead code; (2) whole-integer
 floats (`15.0` vs `15`) were compared as literal text and flagged as
 "corruption" even though they're the same value. Both are fixed, with a
 regression suite (`test/check-normalization.mjs`, 23 cases) confirming real
@@ -62,10 +100,10 @@ dedicated Web Worker so large inputs no longer freeze the page. Results over
 64 KiB are marked `download-only` and are not force-rendered into the output
 textarea. See PATCHES.md #9.
 
-## Fixed — `unpack` global missing under Fengari (Lua 5.3)
+## Fixed — `unpack` global missing under the host VM (Lua 5.3)
 **Files:** Prometheus compiler entrypoint, visitor and `ProxifyLocals` modules
 Embedded Prometheus source called the Lua 5.1 global `unpack`, which Lua 5.3
-(Fengari) exposes only as `table.unpack`. Aliases `_G.unpack` to
+(the host VM) exposes only as `table.unpack`. Aliases `_G.unpack` to
 `table.unpack` when absent, plus local compatibility bindings as
 defense-in-depth. See PATCHES.md #8.
 
@@ -77,14 +115,13 @@ and every preset except `Minify` failed with
 `attempt to index a boolean value (field 'Steps')`. Restored the aggregator
 table mapping all 11 step names to their `require(...)`. See PATCHES.md #7.
 
-## Fixed — Fengari not usable in a real browser (blank preset dropdown)
-**Files:** `node_modules/fengari` (via `patches/fengari+0.1.5.patch`, applied through `patch-package`)
-Two unguarded `process` references in fengari's `luaconf.js` and `liolib.js`
+## Fixed — host VM not usable in a real browser (blank preset dropdown)
+**Files:** `vendor/luanode-vm` (LuaNode-VM ships these guards natively; the legacy `patch-package` workflow is no longer needed)
+Two unguarded `process` references in the VM's `luaconf.js` and `liolib.js`
 threw immediately on import in a browser (no `process` global), aborting the
-whole module graph before the UI could populate. Both are now guarded the
-same way the rest of fengari's own Node-detection code is; `patch-package`
-now runs automatically on `npm install` (including in CI) so this can't be
-silently lost on a dependency bump. See PATCHES.md #6.
+whole module graph before the UI could populate. LuaNode-VM already guards
+both the same way the rest of its own Node-detection code does, so no
+post-install patch is required anymore. See PATCHES.md #6.
 
 ## Changed — Non-clock-based retry seeding (mitigation, superseded above for #155/#18)
 **Files:** `web/src/engine.js`
@@ -147,15 +184,18 @@ branch. Clamped so the threshold always strictly exceeds the left ID; binary
 split's reversed-branch condition style is now only chosen when the ID gap
 actually permits it. Equivalent to upstream PR #166's fix, applied locally.
 
-## Fixed — Fengari 32-bit integer overflow leaking float subtype into output
+## Fixed — host VM integer overflow leaking float subtype into output
 **Files:** `src/prometheus/steps/NumbersToExpressions.lua`
-Fengari (Lua 5.3 compiled to JS) uses a 32-bit `lua_Integer`, unlike the
+The host VM (Lua 5.3 compiled to JS) uses a `lua_Integer` subtype, unlike the
 target runtime (Lua 5.1 / Luau, 64-bit doubles only, no integer subtype).
 Three `NumbersToExpressions` generators (modulo decomposition,
 addition/subtraction, scientific notation) could produce values exceeding
-`2^31-1`, which Fengari silently treats as float — e.g. an integer `15`
-printing as `"15.0"` instead of `"15"` — which then tripped the self-test's
-strict string comparison as a false-positive "corruption". Added a
-`fitsInt32` bound to every affected generator, and made the scientific
-notation path skip integer-valued inputs (since `val / 10^exp` always
-produces a float in Lua 5.3).
+the integer range, which the host VM silently treats as float — e.g. an
+integer `15` printing as `"15.0"` instead of `"15"` — which then tripped the
+self-test's strict string comparison as a false-positive "corruption". Added
+a `fitsInt32` bound to every affected generator (a conservative cap kept
+from the Fengari era, when `lua_Integer` was 32-bit; LuaNode-VM now provides
+true 64-bit integers, so the cap only bounds operand magnitude and never
+produces incorrect results), and made the scientific notation path skip
+integer-valued inputs (since `val / 10^exp` always produces a float in Lua
+5.3).

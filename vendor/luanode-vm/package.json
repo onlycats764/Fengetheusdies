@@ -1,0 +1,18 @@
+{
+  "name": "fengari",
+  "version": "1.0.0",
+  "description": "LuaNode-VM vendored as a drop-in replacement for fengari — a Lua 5.3 VM in JavaScript with true 64-bit integer support via BigInt.",
+  "main": "src/fengari.js",
+  "module": "src/fengari.js",
+  "type": "commonjs",
+  "bin": {
+    "luanode": "cli/luanode.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "readline-sync": "^1.4.10",
+    "sprintf-js": "^1.1.3",
+    "tmp": "^0.2.5"
+  },
+  "sideEffects": false
+}
