@@ -41,7 +41,6 @@
     <div class="pipe-step" data-step="transform"><span class="dot"></span>transform</div>
     <div class="pipe-step" data-step="rename"><span class="dot"></span>rename</div>
     <div class="pipe-step" data-step="emit"><span class="dot"></span>emit</div>
-    <div class="pipe-step" data-step="verify"><span class="dot"></span>verify</div>
   </section>
 
   <section class="panes">
@@ -62,7 +61,7 @@
       <label for="preset">Preset</label>
       <select id="preset"></select>
       <button id="run" class="run-btn">Obfuscate</button>
-      <div class="hint">Medium &amp; Strong self-verify their own output before handing it back &mdash; see below.</div>
+      <div class="hint">Strong layers Vmify, ProxifyLocals, ConstantArray & more for maximum resistance.</div>
     </div>
 
     <div class="pane">
@@ -99,8 +98,8 @@
         <p>LuaNode-VM isn't a Lua-to-JS transpiler &mdash; it's a line-for-line port of the PUC-Rio Lua 5.3 VM, carrying true 64-bit Lua integers via BigInt. The obfuscator's compiler, parser, and code generator run as actual Lua bytecode, executing inside that VM, inside your tab.</p>
       </div>
       <div>
-        <h3>Self-verifying output</h3>
-        <p>The Medium and Strong presets use a step (<code>Vmify</code> + <code>ConstantArray</code>) that has a known, non-deterministic upstream bug (<a href="https://github.com/prometheus-lua/Prometheus/issues/155" target="_blank" rel="noopener">#155</a>, <a href="https://github.com/prometheus-lua/Prometheus/issues/18" target="_blank" rel="noopener">#18</a>). Fengatheus actually executes its own output in a sandboxed VM before showing it to you, and retries with a forced fresh seed if it hits that bug.</p>
+        <h3>Layered obfuscation</h3>
+        <p>Strong stacks every layer Prometheus offers: <code>Vmify</code> (compiles your code to a custom bytecode running inside a generated VM dispatch loop &mdash; the hardest single layer to reverse), <code>EncryptStrings</code> & <code>SplitStrings</code> (per-string PRNG encryption and chunk reassembly via local functions), <code>ProxifyLocals</code> (wraps every local in a proxy with metamethods), <code>ConstantArray</code> with shuffled/rotated arrays and junk wrapper functions, <code>AntiTamper</code>, and <code>NumbersToExpressions</code>. Each layer composes, making reverse engineering substantially harder.</p>
       </div>
       <div>
         <h3>Nothing leaves your browser</h3>

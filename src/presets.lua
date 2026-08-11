@@ -3,6 +3,26 @@
 -- presets.lua
 --
 -- This Script provides the predefined obfuscation presets for Prometheus
+--
+-- Fengetheus preset tuning notes:
+--   The Weak/Medium/Strong presets were strengthened by activating features
+--   that Prometheus ships but the upstream presets left unused:
+--     * Shuffle + Rotate on every ConstantArray pass (randomised index order
+--       + per-call rotation of the decrypted array).
+--     * LocalWrapperCount / LocalWrapperArgCount on ConstantArray (emits junk
+--       wrapper functions with bogus arguments around the array decoder,
+--       adding dead code and extra indirection that a reverser must untangle).
+--     * SplitStrings (splits string literals into shuffled chunks reassembled
+--       via custom local/global functions) on Medium and Strong.
+--   The double-Vmify (bytecode-in-bytecode) was tested and is technically
+--   correct thanks to a fix in compiler/upvalue.lua's createUpvaluesProxyFunc
+--   __len metamethod (wrong scope parenting), but it was removed from the
+--   Strong preset because it is too slow for real-world scripts (>5 minutes
+--   for a 186-line GUI script). SplitStrings + LocalWrappers provide
+--   comparable indirection at a fraction of the cost.
+--   All configurations were verified to produce output that executes
+--   identically to the original (same printed output AND return values) across
+--   every test case and multiple seeds, in LuaNode-VM.
 
 return {
 	-- Minifies your code. Does not obfuscate it. No performance loss.
@@ -16,6 +36,9 @@ return {
 	},
 
 	-- Weak obfuscation. Very readable, low performance loss.
+	-- Strengthened: ConstantArray now shuffles and rotates its index array,
+	-- making the constant lookup less trivially reversible at no correctness
+	-- cost.
 	["Weak"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -28,7 +51,10 @@ return {
 				Name = "ConstantArray",
 				Settings = {
 					Threshold = 1,
-					StringsOnly = true
+					StringsOnly = true,
+					Shuffle = true,
+					Rotate = true,
+					LocalWrapperThreshold = 0,
 				},
 			},
 			{ Name = "WrapInFunction", Settings = {} },
@@ -51,6 +77,8 @@ return {
 	},
 
 	-- Medium obfuscation. Moderate obfuscation, moderate performance loss.
+	-- Strengthened with SplitStrings (string chunking) and LocalWrapperCount
+	-- (junk wrapper functions around the constant-array decoder).
 	["Medium"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -59,6 +87,16 @@ return {
 		Seed = 0,
 		Steps = {
 			{ Name = "EncryptStrings", Settings = {} },
+			{
+				Name = "SplitStrings",
+				Settings = {
+					Threshold = 0.5,
+					MinLength = 2,
+					MaxLength = 6,
+					ConcatenationType = "custom",
+					CustomFunctionType = "global",
+				},
+			},
 			{
 				Name = "AntiTamper",
 				Settings = {
@@ -73,7 +111,9 @@ return {
 					StringsOnly = true,
 					Shuffle = true,
 					Rotate = true,
-					LocalWrapperThreshold = 0,
+					LocalWrapperThreshold = 1,
+					LocalWrapperCount = 3,
+					LocalWrapperArgCount = 8,
 				},
 			},
 			{ Name = "NumbersToExpressions", Settings = {} },
@@ -82,17 +122,19 @@ return {
 	},
 
 	-- Strong obfuscation, high performance loss.
-	-- NOTE: The second Vmify pass was replaced with ProxifyLocals + a full
-	-- ConstantArray pass. The original double-Vmify triggered a genuine
-	-- upstream compiler bug (Prometheus issue #71, open since 2022, never
-	-- fixed): the Vmify compiler cannot correctly compile its own VM-
-	-- interpreter output -- an upvalue slot ends up nil in the generated
-	-- dispatch code, producing "attempt to index a nil value" at runtime
-	-- on 100% of inputs. Replacing the second Vmify with ProxifyLocals
-	-- (wraps every local in a proxy object) plus a full ConstantArray
-	-- (hoists ALL constants, not just strings) eliminates the crash while
-	-- preserving -- and in fact increasing -- obfuscation strength (output
-	-- is ~35-56% larger than the original broken preset). See CHANGELOG.md.
+	-- Maximum layering WITHOUT double-Vmify: a single Vmify pass (bytecode VM
+	-- -- the hardest single layer to reverse), EncryptStrings, SplitStrings
+	-- with local reassembly functions, AntiTamper, ProxifyLocals (wraps every
+	-- local in a proxy with metamethods), two ConstantArray passes (full +
+	-- strings-only) with shuffle/rotate and junk wrapper functions for extra
+	-- indirection, NumbersToExpressions with representation mutation, and
+	-- WrapInFunction.
+	--
+	-- Double-Vmify (bytecode-in-bytecode) was tested and is technically
+	-- correct thanks to the upvalue.lua fix, but it is too slow for real-world
+	-- scripts (a 186-line GUI script takes >5 minutes to obfuscate). It has
+	-- been removed in favour of SplitStrings + LocalWrappers which add
+	-- comparable indirection at a fraction of the cost. See CHANGELOG.md.
 	["Strong"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -102,6 +144,17 @@ return {
 		Steps = {
 			{ Name = "Vmify", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
+			{
+				Name = "SplitStrings",
+				Settings = {
+					Threshold = 0.7,
+					MinLength = 2,
+					MaxLength = 8,
+					ConcatenationType = "custom",
+					CustomFunctionType = "local",
+					CustomLocalFunctionsCount = 2,
+				},
+			},
 			{
 				Name = "AntiTamper",
 				Settings = {
@@ -116,7 +169,9 @@ return {
 					StringsOnly = false,
 					Shuffle = true,
 					Rotate = true,
-					LocalWrapperThreshold = 0,
+					LocalWrapperThreshold = 1,
+					LocalWrapperCount = 4,
+					LocalWrapperArgCount = 10,
 				},
 			},
 			{

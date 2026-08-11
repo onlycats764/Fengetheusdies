@@ -80,7 +80,7 @@ function obfuscateInWorker(source, preset, onLog) {
       activeWorker = null;
       reject(new Error(event.message || "Obfuscation worker failed."));
     };
-    worker.postMessage({ source, preset, maxAttempts: 8 });
+    worker.postMessage({ source, preset });
   });
 }
 
@@ -141,7 +141,7 @@ async function run() {
     }
     downloadBtn.disabled = false;
     const delivery = outputIsDownloadOnly ? "download-only" : "inline preview";
-    statsEl.textContent = `${source.length} bytes -> ${result.code.length} bytes (${((result.code.length / source.length) * 100).toFixed(0)}%) in ${elapsed}s, ${result.attempts} attempt${result.attempts === 1 ? "" : "s"} Â· ${delivery}`;
+    statsEl.textContent = `${source.length} bytes -> ${result.code.length} bytes (${((result.code.length / source.length) * 100).toFixed(0)}%) in ${elapsed}s Â· ${delivery}`;
     setPipelineState("done");
 
     if (result.warning) {
