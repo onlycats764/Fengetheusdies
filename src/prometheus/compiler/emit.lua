@@ -211,7 +211,17 @@ return function(Compiler)
         -- Build a strict threshold condition between adjacent block IDs.
         -- Using a midpoint avoids exact-id comparisons while preserving dispatch.
         local function buildBlockThresholdCondition(scope, leftId, rightId, useAndOr)
+            -- The threshold must be STRICTLY GREATER than leftId so that a
+            -- block whose id == leftId satisfies `pos < bound` and is
+            -- dispatched to its own branch. A naive floor midpoint equals
+            -- leftId when leftId and rightId are adjacent integers, which
+            -- drops that block into the wrong branch (the #155/#18
+            -- "attempt to index a nil value" crash). Bump it to leftId+1
+            -- in that case; ids are distinct & sorted so leftId+1 <= rightId.
             local bound = math.floor((leftId + rightId) / 2);
+            if bound <= leftId then
+                bound = leftId + 1;
+            end
             local posExpr = self:pos(scope);
             local boundExpr = Ast.NumberExpression(bound);
 
@@ -277,16 +287,32 @@ return function(Compiler)
             local mid = l + math.ceil(len / 2);
             local leftMaxId = tb[mid - 1].id;
             local rightMinId = tb[mid].id;
-            -- Float-safe split: any bound strictly between adjacent IDs works.
-            -- Midpoint avoids integer-only math.random(min, max) behavior.
+            -- The split threshold must sit STRICTLY BETWEEN leftMaxId and
+            -- rightMinId. condStyle 1/2 (`pos < bound` / `bound > pos`,
+            -- true=left) need leftMaxId < bound <= rightMinId; condStyle 3
+            -- (`pos > bound`, true=right) needs leftMaxId <= bound < rightMinId,
+            -- i.e. a gap of at least 2. When the ids are adjacent (gap 1)
+            -- there is no integer strictly between them, so condStyle 3 is
+            -- impossible -- force 1 or 2. A naive floor midpoint equals
+            -- leftMaxId in the adjacent case, dropping the left block into
+            -- the wrong branch (the #155/#18 nil-index crash), so bump it to
+            -- leftMaxId+1. This is a correctness fix only; the dispatch tree
+            -- shape is unchanged.
+            local gap = rightMinId - leftMaxId;
             local bound = math.floor((leftMaxId + rightMinId) / 2);
+            if bound <= leftMaxId then
+                bound = leftMaxId + 1;
+            end
             local ifScope = Scope:new(pScope);
 
             local lBlock = buildElseifChain(tb, l, mid - 1, ifScope);
             local rBlock = buildElseifChain(tb, mid, r, ifScope);
 
-            -- Randomly choose between different condition styles
-            local condStyle = math.random(1, 3);
+            -- Randomly choose between different condition styles. condStyle 3
+            -- (`pos > bound`, reversed branches) requires a gap >= 2; for an
+            -- adjacent-id split it cannot produce a correct dispatch, so pick
+            -- from {1, 2} instead.
+            local condStyle = (gap >= 2) and math.random(1, 3) or math.random(1, 2);
             local condition;
             local trueBlock, falseBlock;
 
@@ -356,3 +382,4 @@ return function(Compiler)
         return Ast.Block(stats, self.containerFuncScope);
     end
 end
+
