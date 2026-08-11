@@ -13,7 +13,7 @@
     "test": "node test/regression.mjs"
   },
   "dependencies": {
-    "fengari": "file:vendor/luanode-vm"
+    "luanode-vm": "github:Xyraniz/LuaNode-VM"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

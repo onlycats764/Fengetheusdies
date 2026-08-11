@@ -11,8 +11,77 @@ before/after diffs and root-cause writeups behind each entry, see
 
 ---
 
+## Changed — Load LuaNode-VM as a package dependency (remove vendored copy)
+**Files:** `package.json`, `.gitignore`, `web/src/engine.js`, `test/regression.mjs`, `test/full-suite.mjs`, `test/run-invariant.mjs`, `web/dist/*` (rebuilt)
+The full LuaNode-VM repository was previously embedded directly under
+`vendor/luanode-vm/` (42 files) and wired in via
+`"fengari": "file:vendor/luanode-vm"` with a `node_modules/fengari` symlink.
+That vendored copy is removed entirely: `vendor/` is now in `.gitignore` and
+the dependency is declared the normal way —
+`"luanode-vm": "github:Xyraniz/LuaNode-VM"` — so `npm install` pulls
+LuaNode-VM from its real GitHub repository. Every `import`/`require` site
+(`web/src/engine.js` and the three test runners) was updated from the `fengari`
+alias to `luanode-vm`, and the web bundles were rebuilt from the package.
+Functional behaviour is unchanged; only the packaging/source of the VM changed.
+
+## Added — Stronger obfuscation presets (Weak/Medium/Strong)
+**Files:** `src/presets.lua`
+All three non-trivial presets were strengthened with features that upstream
+left unused, while preserving correctness. No existing obfuscation layer was
+removed from any preset, so obfuscation power only increased.
+
+`Weak` — `Shuffle = true, Rotate = true` added to the ConstantArray step.
+The constant lookup array is now shuffled (randomised index order) and rotated
+(per-call rotation of the decrypted array), so the constant-to-index mapping is
+no longer trivially sequential.
+
+`Medium` — `SplitStrings` step (Threshold=0.5, MinLength=2, MaxLength=6,
+ConcatenationType="custom", CustomFunctionType="global") inserted before
+AntiTamper, and `LocalWrapperCount=3, LocalWrapperArgCount=8,
+LocalWrapperThreshold=1` added to the ConstantArray step. String literals are
+split into shuffled chunks reassembled via custom global functions, and the
+ConstantArray decoder is wrapped in 3 junk wrapper functions per scope with 8
+bogus arguments each.
+
+`Strong` — `SplitStrings` step (Threshold=0.7, MinLength=2, MaxLength=8,
+ConcatenationType="custom", CustomFunctionType="local",
+CustomLocalFunctionsCount=2) added after EncryptStrings, and
+`LocalWrapperCount=4, LocalWrapperArgCount=10, LocalWrapperThreshold=1` added
+to the full ConstantArray pass. A second `Vmify` pass (bytecode-in-bytecode)
+was tested and is technically correct thanks to the upvalue.lua root-cause fix,
+but rejected for performance — a 186-line Roblox GUI script takes over 5
+minutes with double-Vmify versus 38 seconds with SplitStrings + LocalWrappers,
+which give comparable indirection. Strong now layers: Vmify → EncryptStrings
+→ SplitStrings (local reassembly) → AntiTamper → ProxifyLocals →
+ConstantArray (full, shuffle/rotate, 4 junk wrappers) → ConstantArray
+(strings, shuffle/rotate) → NumbersToExpressions → WrapInFunction.
+
+All 9 regression cases (including a 186-line Roblox GUI script) pass under
+Weak, Medium, and Strong (9/9 each), matching the original output exactly.
+
+## Removed — Auto-verification (engine self-test) and retry loop
+**Files:** `web/src/engine.js`, `web/src/worker.js`, `web/src/app.js`, `web/index.html`
+The engine's sandbox-execution-and-retry loop was removed. Previously
+`obfuscate()` ran the original source in a sandbox to capture a baseline,
+obfuscated it, ran the obfuscated output, compared the two, and retried with a
+fresh seed up to 8 times on mismatch. This was a workaround for the
+Vmify+ConstantArray upvalue crash (upstream Prometheus #155/#18), whose root
+cause is now fixed directly in `upvalue.lua` (see the "ROOT CAUSE RESOLVED"
+entry below), so the retry loop no longer has anything to retry for. The
+self-test was also actively harmful for real-world Roblox/GUI scripts that
+reference globals (`game`, services, etc.) not available in a bare sandbox.
+
+`engine.js` went from 283 to 111 lines: `obfuscate(source, preset,
+{ onLog = () => {} } = {})` now obfuscates once and returns immediately. The
+worker no longer destructures/passes `maxAttempts`; `app.js` no longer posts
+`maxAttempts` or shows an attempt count; `index.html` dropped the `verify`
+pipeline step and the "Self-verifying output" about card (which referenced the
+now-fixed bugs) in favour of a "Layered obfuscation" card.
+
+---
+
 ## Changed — Host VM migrated from Fengari to LuaNode-VM (true 64-bit integers)
-**Files:** `package.json`, `vendor/luanode-vm/` (new), `web/src/engine.js`, `src/prometheus/steps/NumbersToExpressions.lua`, `README.md`, `PATCHES.md`
+**Files:** `package.json`, `web/src/engine.js`, `src/prometheus/steps/NumbersToExpressions.lua`, `README.md`, `PATCHES.md`
 Fengetheus now runs Prometheus inside [LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM)
 instead of upstream Fengari. LuaNode-VM is a specialized Fengari fork that fixes
 a critical correctness flaw: Fengari represented Lua's `lua_Integer` with
@@ -22,11 +91,11 @@ safe-integer range (`math.maxinteger` reported `9007199254740991` instead of
 hybrid Number/BigInt representation giving the full signed 64-bit range with
 correct two's-complement wraparound, matching PUC-Rio Lua 5.3 exactly.
 
-LuaNode-VM is vendored directly under `vendor/luanode-vm/` and exposed to the
-rest of the project through the `fengari` package alias
-(`"fengari": "file:vendor/luanode-vm"` in `package.json`) — a drop-in
-compatible API, so no source `import`/`require` statements had to change.
-The `patch-package` postinstall step and `patches/` directory were removed:
+LuaNode-VM is loaded as a normal package dependency from its GitHub repository
+(`"luanode-vm": "github:Xyraniz/LuaNode-VM"` in `package.json`) — a drop-in
+compatible API, so no source `import`/`require` statements reference the old
+`fengari` package name anymore (all `import`/`require` sites now resolve
+`luanode-vm`). The `patch-package` postinstall step and `patches/` directory were removed:
 LuaNode-VM already ships the two browser-compatibility guards
 (`luaconf.js`'s `process.env.FENGARICONF` guard and `liolib.js`'s
 `luaopen_io` `process` guard) that those patches previously added to Fengari.

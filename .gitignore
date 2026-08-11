@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Vendored packages — never commit; load via npm/git dependencies instead
+vendor/
+
 # npm
 package-lock.json
 

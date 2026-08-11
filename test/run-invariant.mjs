@@ -5,7 +5,7 @@
 //
 // This proves the root cause lives in the Vmify compiler, independent of
 // ConstantArray or the RNG.
-import fengari from "fengari";
+import fengari from "luanode-vm";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";

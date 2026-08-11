@@ -11,7 +11,7 @@
 // plus the full-suite correctness policy: Medium/Strong outputs must run
 // in a sandbox with printed output AND return values identical to the
 // original. Silent value drift is treated like a crash.
-import fengari from "fengari";
+import fengari from "luanode-vm";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";

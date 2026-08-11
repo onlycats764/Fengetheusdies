@@ -1,12 +1,12 @@
-import * as fengari from "fengari";
+import * as luanodeVM from "luanode-vm";
 import { LUA_MODULES } from "./lua-modules.generated.js";
 
-const { lua, lauxlib, lualib, to_luastring, to_jsstring } = fengari;
+const { lua, lauxlib, lualib, to_luastring, to_jsstring } = luanodeVM;
 
 /**
  * Creates a fresh Lua VM (LuaNode-VM — a Lua 5.3 VM compiled to JavaScript
- * with true 64-bit integer support via BigInt, vendored as a drop-in for
- * fengari) with the entire real Prometheus source tree preloaded via
+ * with true 64-bit integer support via BigInt, loaded from the
+ * Xyraniz/LuaNode-VM GitHub package) with the entire real Prometheus source tree preloaded via
  * package.preload. No filesystem, no network, nothing fetched at runtime:
  * everything ships inside the bundle.
  *

@@ -8,7 +8,7 @@
 // times, mirroring the same policy as web/src/engine.js's self-test.
 //
 // Usage: node test/full-suite.mjs [--attempts N] [--seeds-from N] [--quiet]
-import fengari from "fengari";
+import fengari from "luanode-vm";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
