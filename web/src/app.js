@@ -17,16 +17,19 @@ const fileInputEl = $("#file-input");
 const attachBtn = $("#attach");
 const inputPane = $("#input-pane");
 const fileNameEl = $("#file-name");
-const backgroundModeEl = $("#background-mode");
-const webhookEl = $("#webhook");
+const cancelBtn = $("#cancel");
+const presetGuidanceEl = $("#preset-guidance");
 
 // Large generated programs can make a textarea/layout pass expensive and
 // appear to freeze the tab. Keep the complete result available for download,
 // but only render a preview when it is reasonably small.
 const OUTPUT_PREVIEW_LIMIT = 64 * 1024;
+const LARGE_INPUT_BYTES = 32 * 1024;
+const LOCAL_HARD_TIMEOUT_MS = 20 * 60 * 1000;
 let latestOutput = "";
 let outputIsDownloadOnly = false;
 let activeWorker = null;
+let cancelActiveJob = null;
 
 const EXAMPLE = `local function greet(name)
 \treturn "Hello, " .. name .. "!"
@@ -57,39 +60,73 @@ function clearLog() {
 function setBusy(busy, label = "Obfuscating...") {
   runBtn.disabled = busy;
   runBtn.textContent = busy ? label : "Obfuscate";
-}
-
-function setBackgroundFields() {
-  const enabled = Boolean(backgroundModeEl?.checked);
-  if (webhookEl) webhookEl.disabled = !enabled;
+  if (cancelBtn) cancelBtn.hidden = !busy;
+  if (!busy) cancelBtn?.setAttribute("aria-hidden", "true");
+  else cancelBtn?.removeAttribute("aria-hidden");
 }
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds)) return "an unknown amount of time";
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} seconds`;
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+function updatePresetGuidance() {
+  if (!presetGuidanceEl) return;
+  const bytes = new TextEncoder().encode(inputEl.value).length;
+  const strongSelected = presetEl.value === "Strong";
+  if (bytes >= LARGE_INPUT_BYTES && strongSelected) {
+    presetGuidanceEl.textContent = `Strong on ${(bytes / 1024).toFixed(0)} KB can take many minutes. Medium is recommended when you need a faster result.`;
+    presetGuidanceEl.classList.add("caution");
+  } else if (bytes >= LARGE_INPUT_BYTES) {
+    presetGuidanceEl.textContent = `Medium is recommended for ${(bytes / 1024).toFixed(0)} KB inputs. The work stays local and the page remains responsive.`;
+    presetGuidanceEl.classList.remove("caution");
+  } else {
+    presetGuidanceEl.textContent = "Your source stays in this browser; the worker keeps the page responsive while it runs.";
+    presetGuidanceEl.classList.remove("caution");
+  }
+}
+
 function obfuscateInWorker(source, preset, onLog) {
   return new Promise((resolve, reject) => {
     const worker = new Worker("./dist/worker.js");
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      worker.terminate();
+      if (activeWorker === worker) activeWorker = null;
+      if (cancelActiveJob === cancel) cancelActiveJob = null;
+      callback(value);
+    };
+    const cancel = (reason = "cancelled") => {
+      const error = new Error(reason === "timeout"
+        ? `This job exceeded the ${LOCAL_HARD_TIMEOUT_MS / 60000}-minute safety limit. Try Medium for a faster result.`
+        : "Obfuscation cancelled.");
+      error.code = reason;
+      finish(reject, error);
+    };
+    const timeoutId = setTimeout(() => cancel("timeout"), LOCAL_HARD_TIMEOUT_MS);
+
     activeWorker = worker;
+    cancelActiveJob = cancel;
     worker.onmessage = (event) => {
       const message = event.data || {};
       if (message.type === "log") {
         onLog(message.message);
       } else if (message.type === "result") {
-        worker.terminate();
-        activeWorker = null;
-        resolve(message.result);
+        finish(resolve, message.result);
       } else if (message.type === "error") {
-        worker.terminate();
-        activeWorker = null;
-        reject(new Error(message.error));
+        finish(reject, new Error(message.error));
       }
     };
     worker.onerror = (event) => {
-      worker.terminate();
-      activeWorker = null;
-      reject(new Error(event.message || "Obfuscation worker failed."));
+      finish(reject, new Error(event.message || "Obfuscation worker failed."));
     };
     worker.postMessage({ source, preset });
   });
@@ -139,24 +176,6 @@ function showResult(source, result, elapsedSeconds, delivery = "inline preview")
   }
 }
 
-async function submitBackground(source, preset) {
-  const webhook = webhookEl?.value.trim();
-  if (!webhook) throw new Error("Enter a delivery webhook before using background mode.");
-  const response = await fetch("/api/jobs", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      source,
-      preset,
-      webhook,
-      filename: fileNameEl && !fileNameEl.hidden ? fileNameEl.textContent : "input.lua",
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `Background service returned HTTP ${response.status}.`);
-  return payload;
-}
-
 async function run() {
   const source = inputEl.value;
   const preset = presetEl.value;
@@ -168,28 +187,37 @@ async function run() {
 
   clearLog();
   resetOutput();
-  setBusy(true, backgroundModeEl?.checked ? "Queueing..." : "Obfuscating...");
+  setBusy(true, "Obfuscating...");
   animatePipeline();
 
   const startedAt = performance.now();
   try {
-    if (backgroundModeEl?.checked) {
-      const jobInfo = await submitBackground(source, preset);
-      log(`Job ${jobInfo.job.id} accepted. You can close this tab now.`);
-      log("Strong is running in the background; obfuscated.lua will arrive at your webhook.");
-      statsEl.textContent = `Job ${jobInfo.job.id} accepted · delivery by webhook`;
-      setPipelineState("active");
-    } else {
-      // Yield to the browser so the busy state paints before the worker starts.
-      await delay(20);
-      const result = await obfuscateInWorker(source, preset, log);
-      showResult(source, result, ((performance.now() - startedAt) / 1000).toFixed(2));
-    }
+    // Yield to the browser so the busy state paints before the worker starts.
+    await delay(20);
+    const result = await obfuscateInWorker(source, preset, (message) => {
+      log(message);
+      const elapsed = (performance.now() - startedAt) / 1000;
+      statsEl.textContent = `${preset} is still running · ${formatDuration(elapsed)} elapsed · you can cancel at any time`;
+    });
+    showResult(source, result, ((performance.now() - startedAt) / 1000).toFixed(2), "local worker");
   } catch (e) {
-    log(`Unexpected error: ${e.message}`);
-    console.error(e);
+    if (e.code === "cancelled") {
+      log("Obfuscation cancelled. Nothing was uploaded.");
+      warningEl.hidden = false;
+      warningEl.textContent = "The job was cancelled. You can choose Medium for a quicker result or try again when you have more time.";
+    } else if (e.code === "timeout") {
+      log(e.message);
+      warningEl.hidden = false;
+      warningEl.textContent = e.message;
+    } else {
+      log(`Unexpected error: ${e.message}`);
+      console.error(e);
+      warningEl.hidden = false;
+      warningEl.textContent = e.message;
+    }
     setPipelineState("failed");
   } finally {
+    cancelActiveJob = null;
     if (activeWorker) {
       activeWorker.terminate();
       activeWorker = null;
@@ -199,8 +227,9 @@ async function run() {
 }
 
 runBtn.addEventListener("click", run);
-backgroundModeEl?.addEventListener("change", setBackgroundFields);
-setBackgroundFields();
+cancelBtn?.addEventListener("click", () => cancelActiveJob?.("cancelled"));
+inputEl.addEventListener("input", updatePresetGuidance);
+presetEl.addEventListener("change", updatePresetGuidance);
 
 const pipeSteps = Array.from(document.querySelectorAll(".pipe-step"));
 let pipeTimers = [];
@@ -291,6 +320,7 @@ function loadFileIntoInput(file) {
       fileNameEl.hidden = false;
     }
     log(`Loaded "${file.name}" (${file.size} bytes) into the editor.`);
+    updatePresetGuidance();
   };
   reader.onerror = () => {
     log(`Could not read "${file.name}": ${reader.error?.message ?? "unknown error"}.`);
@@ -332,4 +362,5 @@ if (inputPane) {
   });
 }
 
-log("Ready. Real Prometheus, running as real Lua bytecode inside a Lua VM compiled to JavaScript — entirely in your browser, nothing sent to any server. Paste code or attach a file to get started.");
+log("Ready. Real Prometheus runs locally in a Web Worker, so your source never leaves this browser. Keep this tab open until the result is ready; you can cancel a long job at any time.");
+updatePresetGuidance();

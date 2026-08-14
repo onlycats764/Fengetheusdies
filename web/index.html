@@ -32,7 +32,7 @@
       Fengetheus is a Lua obfuscator built on top of the real Prometheus compiler &mdash; all 81 <code>.lua</code> source files, unmodified except for
       a handful of small host-compatibility patches (see <a href="./PATCHES.md" target="_blank">PATCHES.md</a>) &mdash;
       running inside <a href="https://github.com/Xyraniz/LuaNode-VM" target="_blank" rel="noopener">LuaNode-VM</a>, a real Lua 5.3 VM compiled to JavaScript with true 64-bit integer support.
-      Your code is parsed, transformed, and re-emitted by the actual obfuscator. In normal browser mode nothing is sent to a server; background mode is optional and sends only the queued job to the service you configure.
+      Your code is parsed, transformed, and re-emitted by the actual obfuscator. Nothing is sent to a server: the complete job runs locally in a Web Worker so the page stays responsive.
     </p>
   </section>
 
@@ -61,16 +61,9 @@
       <label for="preset">Preset</label>
       <select id="preset"></select>
       <button id="run" class="run-btn">Obfuscate</button>
+      <button id="cancel" class="cancel-btn" type="button" hidden>Cancel</button>
       <div class="hint">Strong layers Vmify, ProxifyLocals, ConstantArray & more for maximum resistance.</div>
-      <div class="background-options">
-        <label class="checkbox-label" for="background-mode">
-          <input id="background-mode" type="checkbox" />
-          Run in background and deliver by webhook
-        </label>
-        <label for="webhook">Delivery webhook</label>
-        <input id="webhook" type="url" placeholder="https://example.com/webhook" autocomplete="off" />
-        <div class="background-hint">Enter the webhook, press Obfuscate, and close this tab once the job is queued.</div>
-      </div>
+      <div id="preset-guidance" class="preset-guidance" role="status"></div>
     </div>
 
     <div class="pane">
@@ -112,7 +105,7 @@
       </div>
       <div>
         <h3>Nothing leaves your browser</h3>
-        <p>Normal mode has no backend: your source, attached file, and result stay in the browser. If you enable background mode, the configured service receives the job and posts the resulting <code>obfuscated.lua</code> to your webhook.</p>
+        <p>There is no backend: your source, attached file, and result stay in this browser. A Web Worker performs the expensive computation away from the editor, and the Cancel button stops a job that is taking too long.</p>
       </div>
     </div>
   </section>

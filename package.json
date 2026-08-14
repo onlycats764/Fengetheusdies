@@ -1,7 +1,7 @@
 {
   "name": "fengetheus-web",
   "version": "1.2.0",
-  "description": "Fengetheus — a Lua obfuscator built on Prometheus, with a Vercel API for background webhook delivery via LuaNode-VM.",
+  "description": "Fengetheus — a client-side Lua obfuscator built on Prometheus and LuaNode-VM.",
   "private": true,
   "type": "module",
   "author": "Fengetheus",
@@ -13,7 +13,6 @@
     "test": "node test/regression.mjs"
   },
   "dependencies": {
-    "@vercel/functions": "^3.9.3",
     "luanode-vm": "github:Xyraniz/LuaNode-VM"
   },
   "devDependencies": {
