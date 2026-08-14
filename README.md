@@ -29,11 +29,10 @@ Live at: `(https://xyraniz.github.io/Fengetheus/)` once deployed (see below).
   results remain in memory and are offered through `Download` without assigning
   the full generated source to a textarea, avoiding expensive browser layout
   and rendering work.
-- **Optional background jobs.** Run `npm run background` and open the service
-  URL. Enable background mode in the page, enter a webhook, and press
-  `Obfuscate`; the service queues the source, persists the job, runs Strong
-  outside the browser tab, and uploads `obfuscated.lua` to the webhook. Once
-  the job is queued, the tab can be closed.
+- **Background delivery on Vercel.** Enable background mode, enter a webhook,
+  and press `Obfuscate`. The Vercel API accepts the job under the same domain,
+  then runs Strong after the response and uploads `obfuscated.lua` to the
+  webhook. Once the job is accepted, the tab can be closed.
 
 ## Project layout
 
@@ -52,8 +51,9 @@ web/
   dist/
     bundle.js                 (generated) UI bundle
     worker.js                 (generated) LuaNode-VM/Prometheus Worker bundle
-background/
-  server.mjs                  Optional persistent queue and webhook delivery service
+api/
+  jobs.js                     Vercel Function: background job acceptance and webhook delivery
+vercel.json                   Vercel build output and Function duration configuration
 test/
   regression.mjs              Regression test: obfuscates representative scripts
                                with every preset and cross-checks against lua5.3
@@ -74,18 +74,13 @@ any static file server — no build step is needed at request time, everything i
 pre-bundled). The normal UI sends work to `web/dist/worker.js`, so the tab remains
 responsive while LuaNode-VM processes large inputs.
 
-GitHub Pages continues to serve the static, browser-only mode. For a job that must continue after the tab closes, start the optional service on a computer or server that will remain on:
-
-```sh
-npm run background
-```
-
-Open `http://127.0.0.1:8787/`, enable **Run in background and deliver by webhook**,
-enter the webhook and the service URL, then press `Obfuscate`. The page shows a
-job ID as soon as the source is safely queued. The service writes temporary job
-state under `background/data/`, retries webhook delivery up to three times, and
-keeps completed jobs for seven days by default. Set `FENGETHEUS_DATA_DIR` if the
-state should live elsewhere.
+For background delivery, deploy the repository to Vercel. The included
+`vercel.json` runs `npm run build`, serves `web/`, and exposes `api/jobs.js`
+under the same domain. In the page, enable **Run in background and deliver by
+webhook**, enter the webhook, and press `Obfuscate`; no service URL is required.
+The browser receives an accepted job ID immediately and can be closed. Vercel
+runs the job within the configured function duration and sends either the output
+file or a failure event to the webhook.
 
 
 To re-run the regression test (needs a `lua5.3` binary on your `PATH` —

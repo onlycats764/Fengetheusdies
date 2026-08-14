@@ -157,29 +157,6 @@ async function submitBackground(source, preset) {
   return payload;
 }
 
-async function pollBackgroundJob(jobInfo, source) {
-  let seenLogs = 0;
-  while (true) {
-    const response = await fetch(jobInfo.statusUrl);
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || `Could not read job status (HTTP ${response.status}).`);
-
-    for (const entry of (payload.logs || []).slice(seenLogs)) log(entry.message);
-    seenLogs = (payload.logs || []).length;
-
-    if (payload.status === "failed") {
-      throw new Error(payload.error || "Background job failed.");
-    }
-    if (payload.status === "completed") {
-      const outputResponse = await fetch(jobInfo.outputUrl);
-      if (!outputResponse.ok) throw new Error(`Background output is unavailable (HTTP ${outputResponse.status}).`);
-      const code = await outputResponse.text();
-      return { ok: true, code, warning: null, elapsedMs: payload.elapsedMs };
-    }
-    await delay(2500);
-  }
-}
-
 async function run() {
   const source = inputEl.value;
   const preset = presetEl.value;
@@ -198,10 +175,10 @@ async function run() {
   try {
     if (backgroundModeEl?.checked) {
       const jobInfo = await submitBackground(source, preset);
-      log(`Queued job ${jobInfo.job.id}. The background service will continue after this tab is closed.`);
-      log("Webhook delivery is configured for obfuscated.lua.");
-      const result = await pollBackgroundJob(jobInfo, source);
-      showResult(source, result, ((result.elapsedMs || (performance.now() - startedAt)) / 1000).toFixed(2), "background + webhook");
+      log(`Job ${jobInfo.job.id} accepted. You can close this tab now.`);
+      log("Strong is running in the background; obfuscated.lua will arrive at your webhook.");
+      statsEl.textContent = `Job ${jobInfo.job.id} accepted · delivery by webhook`;
+      setPipelineState("active");
     } else {
       // Yield to the browser so the busy state paints before the worker starts.
       await delay(20);

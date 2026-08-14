@@ -1,7 +1,7 @@
 {
   "name": "fengetheus-web",
   "version": "1.2.0",
-  "description": "Fengetheus — a Lua obfuscator built on top of Prometheus, with a static browser UI and an optional persistent queue for background webhook delivery via LuaNode-VM.",
+  "description": "Fengetheus — a Lua obfuscator built on Prometheus, with a Vercel API for background webhook delivery via LuaNode-VM.",
   "private": true,
   "type": "module",
   "author": "Fengetheus",
@@ -10,10 +10,10 @@
     "build:modules": "node web/scripts/build-lua-modules.mjs",
     "build:bundle": "esbuild web/src/app.js --bundle --outfile=web/dist/bundle.js --format=iife --platform=browser --target=es2020 --alias:fs=./web/src/node-shims/fs.js --external:child_process --external:tmp --external:path --external:os --external:crypto --external:readline-sync --minify && esbuild web/src/worker.js --bundle --outfile=web/dist/worker.js --format=iife --platform=browser --target=es2020 --alias:fs=./web/src/node-shims/fs.js --external:child_process --external:tmp --external:path --external:os --external:crypto --external:readline-sync --minify",
     "build": "npm run build:modules && npm run build:bundle",
-    "background": "node background/server.mjs",
     "test": "node test/regression.mjs"
   },
   "dependencies": {
+    "@vercel/functions": "^3.9.3",
     "luanode-vm": "github:Xyraniz/LuaNode-VM"
   },
   "devDependencies": {
