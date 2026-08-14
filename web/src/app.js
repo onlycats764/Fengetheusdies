@@ -19,7 +19,6 @@ const inputPane = $("#input-pane");
 const fileNameEl = $("#file-name");
 const backgroundModeEl = $("#background-mode");
 const webhookEl = $("#webhook");
-const backgroundUrlEl = $("#background-url");
 
 // Large generated programs can make a textarea/layout pass expensive and
 // appear to freeze the tab. Keep the complete result available for download,
@@ -63,13 +62,6 @@ function setBusy(busy, label = "Obfuscating...") {
 function setBackgroundFields() {
   const enabled = Boolean(backgroundModeEl?.checked);
   if (webhookEl) webhookEl.disabled = !enabled;
-  if (backgroundUrlEl) backgroundUrlEl.disabled = !enabled;
-}
-
-function backgroundServiceOrigin() {
-  const configured = backgroundUrlEl?.value.trim() || window.location.origin;
-  const url = new URL(configured);
-  return url.toString().replace(/\/+$/, "");
 }
 
 function delay(ms) {
@@ -150,8 +142,7 @@ function showResult(source, result, elapsedSeconds, delivery = "inline preview")
 async function submitBackground(source, preset) {
   const webhook = webhookEl?.value.trim();
   if (!webhook) throw new Error("Enter a delivery webhook before using background mode.");
-  const serviceOrigin = backgroundServiceOrigin();
-  const response = await fetch(`${serviceOrigin}/api/jobs`, {
+  const response = await fetch("/api/jobs", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -163,13 +154,13 @@ async function submitBackground(source, preset) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `Background service returned HTTP ${response.status}.`);
-  return { ...payload, serviceOrigin };
+  return payload;
 }
 
 async function pollBackgroundJob(jobInfo, source) {
   let seenLogs = 0;
   while (true) {
-    const response = await fetch(new URL(jobInfo.statusUrl, jobInfo.serviceOrigin));
+    const response = await fetch(jobInfo.statusUrl);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `Could not read job status (HTTP ${response.status}).`);
 
@@ -180,7 +171,7 @@ async function pollBackgroundJob(jobInfo, source) {
       throw new Error(payload.error || "Background job failed.");
     }
     if (payload.status === "completed") {
-      const outputResponse = await fetch(new URL(jobInfo.outputUrl, jobInfo.serviceOrigin));
+      const outputResponse = await fetch(jobInfo.outputUrl);
       if (!outputResponse.ok) throw new Error(`Background output is unavailable (HTTP ${outputResponse.status}).`);
       const code = await outputResponse.text();
       return { ok: true, code, warning: null, elapsedMs: payload.elapsedMs };
