@@ -1,8 +1,9 @@
-// Final replication of the user's exact report:
+// Regression for the exact browser report:
 //   local function greet(name) ... print(greet("World")) / print("total=" .. total)
-// This used to be flagged "silent corruption" 8/8 times in Medium/Strong by
-// the old comparison (integer-as-float rendering: 15 vs 15.0). With the
-// 1.3.1 normalization fix, every attempt must verify cleanly.
+// Strong must complete and return generated source; this file is run from the
+// main suite in a separate process with a hard deadline so a future regression
+// is reported as a timeout instead of silently wedging the test runner.
+import { performance } from "node:perf_hooks";
 import { obfuscate } from "../web/src/engine.js";
 
 const source = `local function greet(name)
@@ -18,13 +19,22 @@ print(greet("World"))
 print("total=" .. total)
 `;
 
+let failed = false;
 for (const preset of ["Medium", "Strong"]) {
-  const res = await obfuscate(source, preset, {
-    maxAttempts: 8,
-    onLog: () => {},
+  const logs = [];
+  const startedAt = performance.now();
+  const result = obfuscate(source, preset, {
+    onLog: (message) => logs.push(message),
   });
-  const flag = res.ok && !res.warning ? "PASS" : "FAIL";
-  console.log(`${flag}  ${preset}: ok=${res.ok} warning=${res.warning !== null} attempts=${res.attempts}`);
-  if (res.warning) console.log("   warning:", res.warning.slice(0, 200));
-  if (!res.ok || res.warning) process.exitCode = 1;
+  const elapsedMs = Math.round(performance.now() - startedAt);
+  const passed = result.ok && !result.warning && typeof result.code === "string" && result.code.length > 0;
+
+  console.log(`${passed ? "PASS" : "FAIL"}  reported script (${preset}) — ${elapsedMs} ms, ${result.code?.length ?? 0} output bytes`);
+  if (!passed) {
+    failed = true;
+    console.log(`  error: ${result.error ?? result.warning ?? "empty generated output"}`);
+    for (const line of logs) console.log(`  log: ${line}`);
+  }
 }
+
+process.exitCode = failed ? 1 : 0;

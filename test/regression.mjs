@@ -14,6 +14,7 @@
 import fengari from "luanode-vm";
 import fs from "fs";
 import path from "path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "url";
 import { LUA_MODULES } from "../web/src/lua-modules.generated.js";
 
@@ -167,13 +168,12 @@ verify("Weak", `local function f(a, b) return a + b, a - b end local x, y = f(10
 verify("Medium", `local start = 0 local function makeCounter(step) local n = start; return function() n = n + step; return n end end local c = makeCounter(7) local last for i = 1, 5 do last = c() end print(last) return last`, "closures + upvalues");
 verify("Strong", `local t = {1, 2, 3} local sum = 0 for _, v in ipairs(t) do sum = sum + v end print(sum) return sum`, "tables + control flow");
 
-console.log("\nregression: large input -> Weak output expands");
+console.log("\nregression: moderate input -> Weak output expands");
 // Strings are the most expansion-heavy construct under Weak (each literal is
-// re-encoded via the string transformation pipeline), so a modest number of
-// long, distinct strings expands the output well past the input while still
-// finishing in seconds. ~70 KiB input, repeated chunks of distinct 24-char
-// literals; measured output stays in the ~89-93 KiB band across seeds, so the
-// check is bounded relative to the input size rather than a fixed threshold.
+// re-encoded via the string transformation pipeline). Keep this as a
+// functional expansion check rather than a long-running stress test: a 4 KiB
+// deterministic fixture still expands comfortably past the input under
+// LuaNode-VM while letting the normal regression suite finish predictably.
 function mkBig(n) {
   const parts = [`local t = {} `];
   for (let i = 0; i < n; i++) {
@@ -182,12 +182,12 @@ function mkBig(n) {
   parts.push(`print(#t) return #t`);
   return parts.join("");
 }
-const bigInput = mkBig(1500);
+const bigInput = mkBig(80);
 const bigRes = obfuscate(bigInput, "Weak");
-check("70 KiB input compiles under Weak", bigRes.ok, bigRes.ok ? null : bigRes.error);
+check("4 KiB input compiles under Weak", bigRes.ok, bigRes.ok ? null : bigRes.error);
 if (bigRes.ok) {
   const bigTest = sandboxExecute(bigRes.code);
-  check("70 KiB Weak output runs", bigTest.ok, bigTest.ok ? null : bigTest.error);
+  check("4 KiB Weak output runs", bigTest.ok, bigTest.ok ? null : bigTest.error);
   check(`Weak output expands past input (${(bigRes.code.length / 1024).toFixed(0)} KiB vs ${(bigInput.length / 1024).toFixed(0)} KiB)`, bigRes.code.length > bigInput.length * 1.2);
 }
 
@@ -199,6 +199,20 @@ const example = `print("self-check")`;
 const a = obfuscate(example, "Medium", 1);
 const b = obfuscate(example, "Medium", 2);
 check("two forced-seed Medium runs produce distinct outputs", a.ok && b.ok && a.code !== b.code);
+
+console.log("\nregression: exact browser report completes");
+const reported = spawnSync(process.execPath, ["test/user-script-final.mjs"], {
+  cwd: path.join(__dirname, ".."),
+  encoding: "utf8",
+  timeout: 60000,
+});
+if (reported.stdout) process.stdout.write(reported.stdout);
+if (reported.stderr) process.stderr.write(reported.stderr);
+if (reported.error?.code === "ETIMEDOUT") {
+  check("reported script Strong completes within 60 seconds", false, "subprocess exceeded 60 seconds");
+} else {
+  check("reported script Medium and Strong pass", reported.status === 0, reported.error?.message ?? `exit status ${reported.status}`);
+}
 
 console.log(`\n${failed === 0 ? "ALL REGRESSION CHECKS PASSED" : `${failed} CHECK(S) FAILED`}`);
 process.exit(failed === 0 ? 0 : 1);

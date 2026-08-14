@@ -6,8 +6,21 @@
 
 -- Configure package.path for requiring Prometheus.
 local function script_path()
-	local str = debug.getinfo(2, "S").source:sub(2)
-	return str:match("(.*[/%\\])")
+	local source = debug.getinfo(2, "S").source
+	if type(source) == "string" and source:sub(1, 1) == "@" then
+		local path = source:sub(2):match("(.*[/%\\])")
+		if path then
+			return path
+		end
+	end
+
+	-- LuaNode-VM deliberately runs scripts from a buffer. Some host builds do
+	-- not preserve that buffer's chunk name in debug.getinfo, so fall back to
+	-- the PUC-Rio-compatible arg[0] supplied by the CLI runner.
+	local invoked = type(arg) == "table" and arg[0]
+	if type(invoked) == "string" then
+		return invoked:match("(.*[/%\\])")
+	end
 end
 -- script_path() returns nil when the CLI is invoked without a directory
 -- component in its own path (e.g. `lua cli.lua ...` from inside the same

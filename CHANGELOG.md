@@ -11,6 +11,22 @@ before/after diffs and root-cause writeups behind each entry, see
 
 ---
 
+## Fixed — Strong completion and CLI diagnostics
+**Files:** `src/presets.lua`, `src/cli.lua`, `web/src/engine.js`, `test/regression.mjs`, `test/user-script-final.mjs`, `web/dist/*` (rebuilt)
+
+Strong no longer enables local ConstantArray wrappers on the AST produced by
+Vmify and ProxifyLocals. That combination caused explosive AST growth: the
+reported 168-byte script did not finish the first ConstantArray pass within
+30 seconds, while the corrected Strong pipeline completes in about 12–22
+seconds in the browser/Node LuaNode-VM host and preserves the remaining
+obfuscation layers. The web engine now forwards Prometheus progress and error
+messages into the visible log instead of leaving them only in worker console
+output. The exact reported script is covered by a timed regression test.
+
+The Fengetheus CLI also falls back to `arg[0]` when a host does not preserve a
+Lua buffer's chunk source in `debug.getinfo`, allowing LuaNode-VM's CLI runner
+to resolve the project modules without masking the original error.
+
 ## Changed — Load LuaNode-VM as a package dependency (remove vendored copy)
 **Files:** `package.json`, `.gitignore`, `web/src/engine.js`, `test/regression.mjs`, `test/full-suite.mjs`, `test/run-invariant.mjs`, `web/dist/*` (rebuilt)
 The full LuaNode-VM repository was previously embedded directly under

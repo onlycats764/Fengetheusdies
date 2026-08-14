@@ -13,13 +13,13 @@ const { lua, lauxlib, lualib, to_luastring, to_jsstring } = luanodeVM;
  * Fengetheus embeds the real Prometheus compiler unmodified except for the
  * host-compatibility patches documented in PATCHES.md.
  */
-function newPrometheusState() {
+function newPrometheusState(onLog) {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
 
-  // Redirect the VM's global `print` to console.log so any message Prometheus
-  // itself prints (e.g. Logger:error, see src/logger.lua) is visible through
-  // the UI's log panel via onLog() instead of only landing in devtools.
+  // Redirect the VM's global `print` so any message Prometheus itself prints
+  // (e.g. Logger:error, see src/logger.lua) reaches the UI log panel through
+  // onLog() instead of being trapped inside the worker or devtools.
   lua.lua_pushjsfunction(L, (LL) => {
     const n = lua.lua_gettop(LL);
     const parts = [];
@@ -30,8 +30,7 @@ function newPrometheusState() {
       parts.push(to_jsstring(lua.lua_tostring(LL, -1), undefined, undefined, "?"));
       lua.lua_pop(LL, 1);
     }
-    // eslint-disable-next-line no-console
-    console.log(parts.join("\t"));
+    onLog(parts.join("\t"));
     return 0;
   });
   lua.lua_setglobal(L, to_luastring("print"));
@@ -85,11 +84,16 @@ export function obfuscate(source, preset, { onLog = () => {} } = {}) {
 
   onLog(`[${preset}] Obfuscating...`);
 
-  const L = newPrometheusState();
+  const L = newPrometheusState(onLog);
   const driver = `
 local Prometheus = require("prometheus")
-Prometheus.Logger.logLevel = Prometheus.Logger.LogLevel.Error
-local pipeline = Prometheus.Pipeline:fromConfig(Prometheus.Presets["${preset}"])
+	-- Surface parser, transform, rename and emit progress through the host print
+	-- callback. This keeps a long-running input diagnosable in the browser
+	-- rather than leaving the user with only a generic busy state.
+	Prometheus.Logger.logLevel = Prometheus.Logger.LogLevel.Info
+	Prometheus.colors.enabled = false
+	local pipeline = Prometheus.Pipeline:fromConfig(Prometheus.Presets["${preset}"])
+
 local ok, out = pcall(function() return pipeline:apply(${luaStringLiteral(source)}, "input.lua") end)
 if not ok then
   error(out, 0)

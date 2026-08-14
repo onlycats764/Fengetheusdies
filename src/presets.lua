@@ -126,9 +126,15 @@ return {
 	-- -- the hardest single layer to reverse), EncryptStrings, SplitStrings
 	-- with local reassembly functions, AntiTamper, ProxifyLocals (wraps every
 	-- local in a proxy with metamethods), two ConstantArray passes (full +
-	-- strings-only) with shuffle/rotate and junk wrapper functions for extra
-	-- indirection, NumbersToExpressions with representation mutation, and
-	-- WrapInFunction.
+	-- strings-only) with shuffle/rotate, NumbersToExpressions with representation
+	-- mutation, and WrapInFunction.
+	--
+	-- Do not enable ConstantArray local wrappers here. This pass runs after
+	-- Vmify and ProxifyLocals, where the AST already contains the generated VM
+	-- runtime and many function scopes. Decorating every such scope multiplies
+	-- the generated AST and makes Strong take minutes even for tiny inputs. The
+	-- non-wrapper ConstantArray path retains array indirection, shuffled/rotated
+	-- lookup layout and string encoding while keeping completion bounded.
 	--
 	-- Double-Vmify (bytecode-in-bytecode) was tested and is technically
 	-- correct thanks to the upvalue.lua fix, but it is too slow for real-world
@@ -169,9 +175,7 @@ return {
 					StringsOnly = false,
 					Shuffle = true,
 					Rotate = true,
-					LocalWrapperThreshold = 1,
-					LocalWrapperCount = 4,
-					LocalWrapperArgCount = 10,
+					LocalWrapperThreshold = 0,
 				},
 			},
 			{

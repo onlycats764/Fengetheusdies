@@ -23,8 +23,21 @@ Based on: `+jt.LUA_COPYRIGHT;Ve.exports.FENGARI_AUTHORS=wh;Ve.exports.FENGARI_CO
 
 -- Configure package.path for requiring Prometheus.
 local function script_path()
-	local str = debug.getinfo(2, "S").source:sub(2)
-	return str:match("(.*[/%\\\\])")
+	local source = debug.getinfo(2, "S").source
+	if type(source) == "string" and source:sub(1, 1) == "@" then
+		local path = source:sub(2):match("(.*[/%\\\\])")
+		if path then
+			return path
+		end
+	end
+
+	-- LuaNode-VM deliberately runs scripts from a buffer. Some host builds do
+	-- not preserve that buffer's chunk name in debug.getinfo, so fall back to
+	-- the PUC-Rio-compatible arg[0] supplied by the CLI runner.
+	local invoked = type(arg) == "table" and arg[0]
+	if type(invoked) == "string" then
+		return invoked:match("(.*[/%\\\\])")
+	end
 end
 -- script_path() returns nil when the CLI is invoked without a directory
 -- component in its own path (e.g. \`lua cli.lua ...\` from inside the same
@@ -653,9 +666,15 @@ return {
 	-- -- the hardest single layer to reverse), EncryptStrings, SplitStrings
 	-- with local reassembly functions, AntiTamper, ProxifyLocals (wraps every
 	-- local in a proxy with metamethods), two ConstantArray passes (full +
-	-- strings-only) with shuffle/rotate and junk wrapper functions for extra
-	-- indirection, NumbersToExpressions with representation mutation, and
-	-- WrapInFunction.
+	-- strings-only) with shuffle/rotate, NumbersToExpressions with representation
+	-- mutation, and WrapInFunction.
+	--
+	-- Do not enable ConstantArray local wrappers here. This pass runs after
+	-- Vmify and ProxifyLocals, where the AST already contains the generated VM
+	-- runtime and many function scopes. Decorating every such scope multiplies
+	-- the generated AST and makes Strong take minutes even for tiny inputs. The
+	-- non-wrapper ConstantArray path retains array indirection, shuffled/rotated
+	-- lookup layout and string encoding while keeping completion bounded.
 	--
 	-- Double-Vmify (bytecode-in-bytecode) was tested and is technically
 	-- correct thanks to the upvalue.lua fix, but it is too slow for real-world
@@ -696,9 +715,7 @@ return {
 					StringsOnly = false,
 					Shuffle = true,
 					Rotate = true,
-					LocalWrapperThreshold = 1,
-					LocalWrapperCount = 4,
-					LocalWrapperArgCount = 10,
+					LocalWrapperThreshold = 0,
 				},
 			},
 			{
@@ -11330,10 +11347,15 @@ return {
     highlight = highlight;
     Presets = Presets;
 }
-`};var{lua:je,lauxlib:sh,lualib:q4,to_luastring:ks,to_jsstring:uc}=G4;function H4(){let e=sh.luaL_newstate();q4.luaL_openlibs(e),je.lua_pushjsfunction(e,t=>{let n=je.lua_gettop(t),s=[];for(let r=1;r<=n;r++)je.lua_getglobal(t,ks("tostring")),je.lua_pushvalue(t,r),je.lua_call(t,1,1),s.push(uc(je.lua_tostring(t,-1),void 0,void 0,"?")),je.lua_pop(t,1);return console.log(s.join("	")),0}),je.lua_setglobal(e,ks("print"));for(let[t,n]of Object.entries(hE)){if(je.lua_getglobal(e,ks("package")),je.lua_getfield(e,-1,ks("preload")),sh.luaL_loadbuffer(e,ks(n),ks("="+t))!==je.LUA_OK){let r=uc(je.lua_tostring(e,-1));throw new Error(`Failed to compile embedded module "${t}": ${r}`)}je.lua_setfield(e,-2,ks(t)),je.lua_pop(e,2)}return e}function L4(e){return JSON.stringify(e)}var gE=["Minify","Weak","Medium","Strong"];function mE(e,t,{onLog:n=()=>{}}={}){if(!gE.includes(t))throw new Error(`Unknown preset "${t}". Must be one of ${gE.join(", ")}.`);n(`[${t}] Obfuscating...`);let s=H4(),r=`
+`};var{lua:je,lauxlib:sh,lualib:q4,to_luastring:ks,to_jsstring:uc}=G4;function H4(e){let t=sh.luaL_newstate();q4.luaL_openlibs(t),je.lua_pushjsfunction(t,n=>{let s=je.lua_gettop(n),r=[];for(let o=1;o<=s;o++)je.lua_getglobal(n,ks("tostring")),je.lua_pushvalue(n,o),je.lua_call(n,1,1),r.push(uc(je.lua_tostring(n,-1),void 0,void 0,"?")),je.lua_pop(n,1);return e(r.join("	")),0}),je.lua_setglobal(t,ks("print"));for(let[n,s]of Object.entries(hE)){if(je.lua_getglobal(t,ks("package")),je.lua_getfield(t,-1,ks("preload")),sh.luaL_loadbuffer(t,ks(s),ks("="+n))!==je.LUA_OK){let o=uc(je.lua_tostring(t,-1));throw new Error(`Failed to compile embedded module "${n}": ${o}`)}je.lua_setfield(t,-2,ks(n)),je.lua_pop(t,2)}return t}function L4(e){return JSON.stringify(e)}var gE=["Minify","Weak","Medium","Strong"];function mE(e,t,{onLog:n=()=>{}}={}){if(!gE.includes(t))throw new Error(`Unknown preset "${t}". Must be one of ${gE.join(", ")}.`);n(`[${t}] Obfuscating...`);let s=H4(n),r=`
 local Prometheus = require("prometheus")
-Prometheus.Logger.logLevel = Prometheus.Logger.LogLevel.Error
-local pipeline = Prometheus.Pipeline:fromConfig(Prometheus.Presets["${t}"])
+	-- Surface parser, transform, rename and emit progress through the host print
+	-- callback. This keeps a long-running input diagnosable in the browser
+	-- rather than leaving the user with only a generic busy state.
+	Prometheus.Logger.logLevel = Prometheus.Logger.LogLevel.Info
+	Prometheus.colors.enabled = false
+	local pipeline = Prometheus.Pipeline:fromConfig(Prometheus.Presets["${t}"])
+
 local ok, out = pcall(function() return pipeline:apply(${L4(e)}, "input.lua") end)
 if not ok then
   error(out, 0)
