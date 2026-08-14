@@ -32,7 +32,7 @@
       Fengetheus is a Lua obfuscator built on top of the real Prometheus compiler &mdash; all 81 <code>.lua</code> source files, unmodified except for
       a handful of small host-compatibility patches (see <a href="./PATCHES.md" target="_blank">PATCHES.md</a>) &mdash;
       running inside <a href="https://github.com/Xyraniz/LuaNode-VM" target="_blank" rel="noopener">LuaNode-VM</a>, a real Lua 5.3 VM compiled to JavaScript with true 64-bit integer support.
-      Your code is parsed, transformed, and re-emitted by the actual obfuscator. Nothing is sent to a server.
+      Your code is parsed, transformed, and re-emitted by the actual obfuscator. In normal browser mode nothing is sent to a server; background mode is optional and sends only the queued job to the service you configure.
     </p>
   </section>
 
@@ -62,6 +62,17 @@
       <select id="preset"></select>
       <button id="run" class="run-btn">Obfuscate</button>
       <div class="hint">Strong layers Vmify, ProxifyLocals, ConstantArray & more for maximum resistance.</div>
+      <div class="background-options">
+        <label class="checkbox-label" for="background-mode">
+          <input id="background-mode" type="checkbox" />
+          Run in background and deliver by webhook
+        </label>
+        <label for="webhook">Delivery webhook</label>
+        <input id="webhook" type="url" placeholder="https://example.com/webhook" autocomplete="off" />
+        <label for="background-url">Background service URL</label>
+        <input id="background-url" type="url" placeholder="http://127.0.0.1:8787" autocomplete="off" />
+        <div class="background-hint">Start <code>npm run background</code>, open its URL, enter the webhook, press Obfuscate, and close this tab after the job is queued.</div>
+      </div>
     </div>
 
     <div class="pane">
@@ -103,7 +114,7 @@
       </div>
       <div>
         <h3>Nothing leaves your browser</h3>
-        <p>There is no backend. This is a static site. Your source code, any file you attach, and the obfuscated result never touch a network request.</p>
+        <p>Normal mode has no backend: your source, attached file, and result stay in the browser. If you enable background mode, the configured service receives the job and posts the resulting <code>obfuscated.lua</code> to your webhook.</p>
       </div>
     </div>
   </section>

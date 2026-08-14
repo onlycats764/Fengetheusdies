@@ -11,6 +11,9 @@ before/after diffs and root-cause writeups behind each entry, see
 
 ---
 
+## Nuevo — Puedes cerrar la pestaña
+Ahora puedes activar el modo de fondo, poner tu webhook y pulsar `Obfuscate`. En cuanto el trabajo queda en cola, puedes cerrar la pestaña: el servicio sigue trabajando y manda `obfuscated.lua` al webhook cuando termina. Strong conserva todas sus capas; además, el procesamiento pesado del AST aprovecha mejor el tiempo.
+
 ## Fixed — Strong completion and CLI diagnostics
 **Files:** `src/presets.lua`, `src/cli.lua`, `web/src/engine.js`, `test/regression.mjs`, `test/user-script-final.mjs`, `web/dist/*` (rebuilt)
 

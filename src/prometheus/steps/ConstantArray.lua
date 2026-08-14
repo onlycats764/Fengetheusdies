@@ -148,7 +148,9 @@ function ConstantArray:indexing(index, data)
 			Ast.StringExpression(wrapper.index)
 		), args);
 	else
-		data.scope:addReferenceToHigherScope(self.rootScope, self.wrapperId);
+		if not data.skipConstantArrayReference then
+			data.scope:addReferenceToHigherScope(self.rootScope, self.wrapperId);
+		end
 		return Ast.FunctionCallExpression(Ast.VariableExpression(self.rootScope, self.wrapperId), {
 			Ast.NumberExpression(index - self.wrapperOffset);
 		});
@@ -172,6 +174,19 @@ function ConstantArray:addConstant(value)
 	local idx = #self.constants + 1;
 	self.constants[idx] = value;
 	self.lookup[value] = idx;
+end
+
+-- Preserve the identity of an AST node while replacing its contents. This is
+-- used by Strong, whose ConstantArray passes deliberately have no local
+-- wrappers. It lets us collect the nodes during the first walk and avoid a
+-- second full walk over the very large VM AST after the constants are shuffled.
+local function replaceNodeInPlace(target, replacement)
+	for key in pairs(target) do
+		target[key] = nil;
+	end
+	for key, value in pairs(replacement) do
+		target[key] = value;
+	end
 end
 
 local function reverse(t, i, j)
@@ -644,20 +659,34 @@ function ConstantArray:apply(ast, pipeline)
 
 	self.constants = {};
 	self.lookup = {};
+	self.replacements = {};
+	self.replacementScopeReferences = {};
 
-	-- Extract Constants
+	-- Extract Constants. Strong has no local wrappers, so remember the exact
+	-- node and scope while we already have them in hand. The replacement can be
+	-- performed in-place after shuffle/rotate, avoiding another full AST walk.
 	visitast(ast, nil, function(node, data)
 		-- Apply only to some nodes
 		if math.random() <= self.Threshold then
 			node.__apply_constant_array = true;
+			local value;
 			if node.kind == AstKind.StringExpression then
-				self:addConstant(node.value);
-			elseif not self.StringsOnly then
-				if node.isConstant then
-					if node.value ~= nil then
-						self:addConstant(node.value);
-					end
+				value = node.value;
+			elseif not self.StringsOnly and node.isConstant then
+				value = node.value;
+			end
+			if value ~= nil then
+				self:addConstant(value);
+				if self.LocalWrapperCount == 0 then
+					table.insert(self.replacements, {
+						node = node,
+						value = value,
+						scope = data.scope,
+					});
+					self.replacementScopeReferences[data.scope] = (self.replacementScopeReferences[data.scope] or 0) + 1;
 				end
+			else
+				node.__apply_constant_array = nil;
 			end
 		end
 	end);
@@ -675,7 +704,22 @@ function ConstantArray:apply(ast, pipeline)
 	self.wrapperOffset = math.random(-self.MaxWrapperOffset, self.MaxWrapperOffset);
 	self.wrapperId = self.rootScope:addVariable();
 
-	visitast(ast, function(node, data)
+	if self.LocalWrapperCount == 0 then
+		-- Scope bookkeeping is additive, so update each scope once instead of
+		-- walking its parent chain for every literal occurrence.
+		for scope, count in pairs(self.replacementScopeReferences) do
+			scope:addReferenceToHigherScope(self.rootScope, self.wrapperId, count);
+		end
+		for _, replacement in ipairs(self.replacements) do
+			local replacementNode = self:getConstant(replacement.value, {
+				scope = replacement.scope,
+				functionData = {},
+				skipConstantArrayReference = true,
+			});
+			replaceNodeInPlace(replacement.node, replacementNode);
+		end
+	else
+		visitast(ast, function(node, data)
 		-- Add Local Wrapper Functions
 		if self.LocalWrapperCount > 0 and node.kind == AstKind.Block and node.isFunctionBlock and math.random() <= self.LocalWrapperThreshold then
 			local id = node.scope:addVariable()
@@ -775,7 +819,8 @@ function ConstantArray:apply(ast, pipeline)
 				Ast.TableConstructorExpression(elems)
 			}));
 		end
-	end);
+		end);
+	end
 
 	self:addDecodeCode(ast);
 
@@ -836,6 +881,8 @@ function ConstantArray:apply(ast, pipeline)
 
 	self.constants = nil;
 	self.lookup = nil;
+	self.replacements = nil;
+	self.replacementScopeReferences = nil;
 end
 
 return ConstantArray;

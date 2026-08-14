@@ -333,6 +333,62 @@ select#preset {
   line-height: 1.5;
   margin-top: 6px;
 }
+.background-options {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.background-options label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.background-options .checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.background-options input[type="checkbox"] {
+  accent-color: var(--ember);
+  margin: 1px 0 0;
+}
+.background-options input[type="url"] {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.background-options input[type="url"]:focus {
+  border-color: var(--ember-deep);
+  box-shadow: 0 0 0 2px rgba(255, 106, 53, 0.12);
+}
+.background-options input[type="url"]:disabled {
+  opacity: 0.45;
+}
+.background-hint {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.background-hint code {
+  font-size: 10px;
+}
 
 .stats {
   font-family: var(--font-mono);

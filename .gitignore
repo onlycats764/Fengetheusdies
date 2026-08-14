@@ -7,8 +7,9 @@ vendor/
 # npm
 package-lock.json
 
-# Build output is committed (static site has no backend), but keep these out:
+# Build output is committed; keep runtime logs and queue state out:
 *.log
+background/data/
 
 # Temporary / scratch files
 test-bisect-tmp.mjs

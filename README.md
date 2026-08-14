@@ -18,14 +18,10 @@ Live at: `(https://xyraniz.github.io/Fengetheus/)` once deployed (see below).
   hostable for free on GitHub Pages, while still running the *actual*
   compiler (compiled Lua source executing inside a Lua VM, not a
   reimplementation).
-- **Self-verifying output.** The `Medium` and `Strong` presets can
-  (non-deterministically) emit broken code due to a known upstream bug in how
-  `Vmify` and `ConstantArray` interact
-  ([details in PATCHES.md](./PATCHES.md#a-known-upstream-bug-this-build-does-not-patch)).
-  Fengetheus self-tests its own output — executing it in a sandbox and
-  diffing against the original script's behavior — and retries with a
-  forced fresh seed before handing you a result, flagging it clearly if it
-  never got a clean pass.
+- **Strong keeps its full layer stack.** The browser and background service use
+  the same Prometheus preset; the background path changes where the work runs,
+  not which protection layers are applied.
+
 - **Attach a file, not just paste.** You can drag a `.lua`/`.luau`/`.txt`
   file straight onto the input pane, or use the "Attach file" button, instead
   of copy-pasting your script.
@@ -33,6 +29,11 @@ Live at: `(https://xyraniz.github.io/Fengetheus/)` once deployed (see below).
   results remain in memory and are offered through `Download` without assigning
   the full generated source to a textarea, avoiding expensive browser layout
   and rendering work.
+- **Optional background jobs.** Run `npm run background` and open the service
+  URL. Enable background mode in the page, enter a webhook, and press
+  `Obfuscate`; the service queues the source, persists the job, runs Strong
+  outside the browser tab, and uploads `obfuscated.lua` to the webhook. Once
+  the job is queued, the tab can be closed.
 
 ## Project layout
 
@@ -42,8 +43,8 @@ web/
   index.html                  The page
   style.css                   Styling
   src/
-    engine.js                 LuaNode-VM + Prometheus wiring, self-test/retry logic
-    app.js                    UI wiring, file attach / drag & drop, Worker lifecycle
+    engine.js                 LuaNode-VM + Prometheus wiring
+    app.js                    UI wiring, file attach / drag & drop, Worker and background-job lifecycle
     worker.js                 Worker entrypoint; runs LuaNode-VM/Prometheus off the UI thread
     lua-modules.generated.js  (generated) all of src/ embedded as a JS object
   scripts/
@@ -51,6 +52,8 @@ web/
   dist/
     bundle.js                 (generated) UI bundle
     worker.js                 (generated) LuaNode-VM/Prometheus Worker bundle
+background/
+  server.mjs                  Optional persistent queue and webhook delivery service
 test/
   regression.mjs              Regression test: obfuscates representative scripts
                                with every preset and cross-checks against lua5.3
@@ -67,9 +70,23 @@ npm run build   # embeds Lua and bundles both the UI and Worker entrypoints
 ```
 
 Then just open `web/index.html` in a browser (or serve the `web/` folder with
-any static file server — no build step is needed at request time, everything
-is pre-bundled). The UI sends work to `web/dist/worker.js`, so the tab remains
+any static file server — no build step is needed at request time, everything is
+pre-bundled). The normal UI sends work to `web/dist/worker.js`, so the tab remains
 responsive while LuaNode-VM processes large inputs.
+
+GitHub Pages continues to serve the static, browser-only mode. For a job that must continue after the tab closes, start the optional service on a computer or server that will remain on:
+
+```sh
+npm run background
+```
+
+Open `http://127.0.0.1:8787/`, enable **Run in background and deliver by webhook**,
+enter the webhook and the service URL, then press `Obfuscate`. The page shows a
+job ID as soon as the source is safely queued. The service writes temporary job
+state under `background/data/`, retries webhook delivery up to three times, and
+keeps completed jobs for seven days by default. Set `FENGETHEUS_DATA_DIR` if the
+state should live elsewhere.
+
 
 To re-run the regression test (needs a `lua5.3` binary on your `PATH` —
 `apt-get install lua5.3` on Debian/Ubuntu):
