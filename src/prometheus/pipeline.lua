@@ -188,8 +188,17 @@ function Pipeline:apply(code, filename)
 		if success then
 			math.randomseed(seed)
 		else
-			logger:warn("OpenSSL is unavailable. Falling back to unix time.");
-			math.randomseed(os.time())
+			-- Browser hosts usually do not provide io.popen. Combine wall-clock
+			-- time with the monotonic process clock so two builds started within
+			-- the same second still receive different polymorphic layouts.
+			logger:warn("OpenSSL is unavailable. Falling back to time and clock entropy.");
+			local wallClock = (os and os.time and os.time()) or 0;
+			local processClock = (os and os.clock and os.clock()) or 0;
+			local seed = (wallClock * 1000000 + math.floor(processClock * 1000000)) % 9007199254740991;
+			if seed <= 0 then
+				seed = 1;
+			end
+			math.randomseed(seed)
 		end
 	end
 
