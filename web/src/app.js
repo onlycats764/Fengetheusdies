@@ -25,7 +25,6 @@ const presetGuidanceEl = $("#preset-guidance");
 // but only render a preview when it is reasonably small.
 const OUTPUT_PREVIEW_LIMIT = 64 * 1024;
 const LARGE_INPUT_BYTES = 32 * 1024;
-const LOCAL_HARD_TIMEOUT_MS = 20 * 60 * 1000;
 let latestOutput = "";
 let outputIsDownloadOnly = false;
 let activeWorker = null;
@@ -98,20 +97,16 @@ function obfuscateInWorker(source, preset, onLog) {
     const finish = (callback, value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeoutId);
       worker.terminate();
       if (activeWorker === worker) activeWorker = null;
       if (cancelActiveJob === cancel) cancelActiveJob = null;
       callback(value);
     };
-    const cancel = (reason = "cancelled") => {
-      const error = new Error(reason === "timeout"
-        ? `This job exceeded the ${LOCAL_HARD_TIMEOUT_MS / 60000}-minute safety limit. Try Medium for a faster result.`
-        : "Obfuscation cancelled.");
-      error.code = reason;
+    const cancel = () => {
+      const error = new Error("Obfuscation cancelled.");
+      error.code = "cancelled";
       finish(reject, error);
     };
-    const timeoutId = setTimeout(() => cancel("timeout"), LOCAL_HARD_TIMEOUT_MS);
 
     activeWorker = worker;
     cancelActiveJob = cancel;
@@ -205,10 +200,6 @@ async function run() {
       log("Obfuscation cancelled. Nothing was uploaded.");
       warningEl.hidden = false;
       warningEl.textContent = "The job was cancelled. You can choose Medium for a quicker result or try again when you have more time.";
-    } else if (e.code === "timeout") {
-      log(e.message);
-      warningEl.hidden = false;
-      warningEl.textContent = e.message;
     } else {
       log(`Unexpected error: ${e.message}`);
       console.error(e);
