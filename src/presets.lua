@@ -78,7 +78,9 @@ return {
 
 	-- Medium obfuscation. Moderate obfuscation, moderate performance loss.
 	-- Strengthened with SplitStrings (string chunking) and LocalWrapperCount
-	-- (junk wrapper functions around the constant-array decoder).
+	-- (junk wrapper functions around the constant-array decoder). The
+	-- reassembly helper is local: global helper injection is observable by
+	-- Roblox scripts and can also introduce an extra global into Vmify input.
 	["Medium"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -94,7 +96,8 @@ return {
 					MinLength = 2,
 					MaxLength = 6,
 					ConcatenationType = "custom",
-					CustomFunctionType = "global",
+					CustomFunctionType = "local",
+					CustomLocalFunctionsCount = 1,
 				},
 			},
 			{
