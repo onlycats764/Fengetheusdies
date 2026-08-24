@@ -11,37 +11,25 @@ before/after diffs and root-cause writeups behind each entry, see
 
 ---
 
-## Nuevo — Puedes cerrar la pestaña
-Ahora puedes activar el modo de fondo, poner tu webhook y pulsar `Obfuscate`. En cuanto el trabajo queda en cola, puedes cerrar la pestaña: el servicio sigue trabajando y manda `obfuscated.lua` al webhook cuando termina. Strong conserva todas sus capas; además, el procesamiento pesado del AST aprovecha mejor el tiempo.
+## Changed — CLI-only distribution
+The repository now ships the native Lua engine and command-line entrypoint as its only execution path. The browser interface, background job service, JavaScript bundling, and deployment configuration were removed. The `bin/fengetheus` launcher and `test/cli-smoke.sh` provide the supported local workflow.
 
 ## Fixed — Strong completion and CLI diagnostics
-**Files:** `src/presets.lua`, `src/cli.lua`, `web/src/engine.js`, `test/regression.mjs`, `test/user-script-final.mjs`, `web/dist/*` (rebuilt)
+**Files:** `src/presets.lua`, `src/cli.lua`, `test/cases/*`, `test/cli-smoke.sh`
 
 Strong no longer enables local ConstantArray wrappers on the AST produced by
 Vmify and ProxifyLocals. That combination caused explosive AST growth: the
 reported 168-byte script did not finish the first ConstantArray pass within
 30 seconds, while the corrected Strong pipeline completes in about 12–22
 seconds in the browser/Node LuaNode-VM host and preserves the remaining
-obfuscation layers. The web engine now forwards Prometheus progress and error
-messages into the visible log instead of leaving them only in worker console
-output. The exact reported script is covered by a timed regression test.
+obfuscation layers. The command-line path reports Prometheus progress and error messages directly in the terminal. The exact reported script remains covered by the Lua fixtures and the CLI smoke test.
 
 The Fengetheus CLI also falls back to `arg[0]` when a host does not preserve a
 Lua buffer's chunk source in `debug.getinfo`, allowing LuaNode-VM's CLI runner
 to resolve the project modules without masking the original error.
 
-## Changed — Load LuaNode-VM as a package dependency (remove vendored copy)
-**Files:** `package.json`, `.gitignore`, `web/src/engine.js`, `test/regression.mjs`, `test/full-suite.mjs`, `test/run-invariant.mjs`, `web/dist/*` (rebuilt)
-The full LuaNode-VM repository was previously embedded directly under
-`vendor/luanode-vm/` (42 files) and wired in via
-`"fengari": "file:vendor/luanode-vm"` with a `node_modules/fengari` symlink.
-That vendored copy is removed entirely: `vendor/` is now in `.gitignore` and
-the dependency is declared the normal way —
-`"luanode-vm": "github:Xyraniz/LuaNode-VM"` — so `npm install` pulls
-LuaNode-VM from its real GitHub repository. Every `import`/`require` site
-(`web/src/engine.js` and the three test runners) was updated from the `fengari`
-alias to `luanode-vm`, and the web bundles were rebuilt from the package.
-Functional behaviour is unchanged; only the packaging/source of the VM changed.
+## Historical — JavaScript-hosted VM packaging
+The previous browser-oriented implementation loaded LuaNode-VM as a JavaScript package and generated browser bundles. That execution path is no longer part of the repository; the supported runtime is the native Lua CLI described in `README.md`.
 
 ## Added — Stronger obfuscation presets (Weak/Medium/Strong)
 **Files:** `src/presets.lua`

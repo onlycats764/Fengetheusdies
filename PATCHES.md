@@ -178,7 +178,7 @@ The fix is applied at the Prometheus entrypoint before any compiler submodule is
 
 The previous UI invoked Fengari synchronously from the main browser thread. Large inputs could make the page appear frozen, and assigning a large generated program directly to a textarea forced unnecessary DOM/layout work. `web/src/worker.js` now runs the complete obfuscation/self-verification pipeline in a dedicated Web Worker and streams progress logs back to the UI. `web/src/app.js` keeps the complete result for the existing Download action, but renders only results up to 64 KiB inline; larger results are explicitly marked `download-only` and are not inserted into the output textarea. Copy is disabled for those results, while Download remains enabled.
 
-The build now emits both `web/dist/bundle.js` and `web/dist/worker.js`, and the regression suite covers the reported example, multiple-return semantics, closures, tables, all four presets, and a 51 KiB input producing a 100 KiB Weak result.
+The current CLI smoke test covers local argument parsing, output-file generation, and a representative Lua transformation. The Lua fixtures under `test/cases/` remain available for broader preset verification.
 
 ## 10. `src/prometheus/compiler/upvalue.lua` — fix `parentScope` breakage in the else-branch `__len` of the upvalues proxy (the actual fix for upstream #155 / #18)
 

@@ -1,133 +1,93 @@
 # Fengetheus
 
-A static site that runs a real Lua obfuscator entirely client-side — no
-backend, nothing sent over the network. Fengetheus is built on top of the
-real [Prometheus](https://github.com/prometheus-lua/Prometheus) Lua
-obfuscator: it embeds Prometheus's actual `.lua` source (all 81 files,
-essentially unmodified — see [PATCHES.md](./PATCHES.md) for the small
-host-compatibility patches) and runs it inside
-[LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM), a real Lua 5.3 VM
-implemented in JavaScript with true 64-bit integer support via BigInt (a
-specialized fork of [Fengari](https://fengari.io)).
+Fengetheus es una herramienta de línea de comandos para ofuscar código Lua mediante el compilador real de [Prometheus](https://github.com/prometheus-lua/Prometheus). El repositorio es ahora **CLI-only**: no incluye interfaz web ni servicios remotos; la ejecución se realiza directamente con el intérprete Lua local.
 
-Live at: `(https://xyraniz.github.io/Fengetheus/)` once deployed (see below).
+La ejecución ocurre localmente en el equipo. El código de entrada se lee desde un archivo y el resultado se escribe en otro archivo; no se envía a ningún servicio remoto durante la ofuscación.
 
-## What Fengetheus adds on top of Prometheus
+## Requisitos
 
-- **Runs anywhere, no install** — a static web page instead of a CLI tool,
-  hostable for free on GitHub Pages, while still running the *actual*
-  compiler (compiled Lua source executing inside a Lua VM, not a
-  reimplementation).
-- **Strong keeps its full layer stack.** The browser and background service use
-  the same Prometheus preset; the background path changes where the work runs,
-  not which protection layers are applied.
+Se necesita un intérprete Lua compatible con la CLI de Prometheus. El comando de uso habitual es `lua`; también puede utilizarse una instalación compatible de Lua 5.1 o LuaU según el objetivo del script.
 
-- **Attach a file, not just paste.** You can drag a `.lua`/`.luau`/`.txt`
-  file straight onto the input pane, or use the "Attach file" button, instead
-  of copy-pasting your script.
-- **Large-result delivery.** Results up to 64 KiB are previewed inline. Larger
-  results remain in memory and are offered through `Download` without assigning
-  the full generated source to a textarea, avoiding expensive browser layout
-  and rendering work.
-- **Background delivery on Vercel.** Enable background mode, enter a webhook,
-  and press `Obfuscate`. The Vercel API accepts the job under the same domain,
-  then runs Strong after the response and uploads `obfuscated.lua` to the
-  webhook. Once the job is accepted, the tab can be closed.
+## Uso rápido
 
-## Project layout
+Desde un clon del repositorio:
 
+```sh
+chmod +x bin/fengetheus
+bin/fengetheus --preset Medium --out output.lua input.lua
 ```
-src/                          Prometheus source (81 .lua files, patched for the browser host)
-web/
-  index.html                  The page
-  style.css                   Styling
-  src/
-    engine.js                 LuaNode-VM + Prometheus wiring
-    app.js                    UI wiring, file attach / drag & drop, Worker and background-job lifecycle
-    worker.js                 Worker entrypoint; runs LuaNode-VM/Prometheus off the UI thread
-    lua-modules.generated.js  (generated) all of src/ embedded as a JS object
-  scripts/
-    build-lua-modules.mjs     Generates lua-modules.generated.js from src/
-  dist/
-    bundle.js                 (generated) UI bundle
-    worker.js                 (generated) LuaNode-VM/Prometheus Worker bundle
-api/
-  jobs.js                     Vercel Function: background job acceptance and webhook delivery
-vercel.json                   Vercel build output and Function duration configuration
+
+También puede ejecutarse directamente con el intérprete Lua:
+
+```sh
+lua src/cli.lua --preset Strong input.lua
+```
+
+Si no se especifica `--out`, la CLI genera un archivo junto al original con el sufijo `.obfuscated.lua`. Si no se especifica un preset ni un archivo de configuración, se utiliza `Minify`.
+
+## Opciones de la CLI
+
+| Opción | Descripción |
+|---|---|
+| `--preset`, `--p <nombre>` | Selecciona `Minify`, `Weak`, `Medium` o `Strong`. |
+| `--config`, `--c <archivo>` | Carga una configuración Lua personalizada. |
+| `--out`, `--o <archivo>` | Define la ruta del archivo de salida. |
+| `--Lua51` | Fuerza el objetivo Lua 5.1. |
+| `--LuaU` | Fuerza el objetivo LuaU. |
+| `--pretty` | Conserva la salida con formato legible. |
+| `--nocolors` | Desactiva los colores de los mensajes de la CLI. |
+| `--saveerrors` | Guarda los errores de análisis junto al archivo de entrada. |
+| `--version`, `-v` | Muestra la versión configurada de la CLI. |
+| `--help`, `-h` | Muestra la ayuda completa. |
+| `update` | Ejecuta el actualizador oficial de Prometheus. |
+
+Los presets disponibles ofrecen distintos compromisos entre legibilidad, tamaño, tiempo de ejecución y resistencia a la ingeniería inversa. `Minify` solo minimiza; `Weak`, `Medium` y `Strong` agregan capas progresivas de transformación y ofuscación.
+
+## Estructura del proyecto
+
+```text
+src/
+  cli.lua                  Entrada principal de la CLI.
+  prometheus.lua           Inicialización y exportación del motor.
+  prometheus/              Compilador, presets y transformaciones Lua.
+bin/
+  fengetheus               Lanzador POSIX para ejecutar la CLI desde el clon.
+LICENSE                    Licencias y atribuciones del proyecto.
+PATCHES.md                 Compatibilidad y cambios aplicados al motor.
+CHANGELOG.md               Historial de cambios.
 test/
-  regression.mjs              Regression test: obfuscates representative scripts
-                               with every preset and cross-checks against lua5.3
-.github/workflows/pages.yml   CI: build + deploy to GitHub Pages on push to main
-PATCHES.md                    Exactly what was changed vs. upstream Prometheus, and why
-CHANGELOG.md                  Fengetheus release history
+  cli-smoke.sh              Prueba de humo del flujo de línea de comandos.
+  cases/                    Casos Lua de referencia.
 ```
 
-## Local development
+El motor conserva la atribución y las condiciones de licencia de Prometheus. Consulte `LICENSE` y `PATCHES.md` antes de redistribuir el proyecto o los archivos generados.
+
+## Desarrollo y verificación
+
+La CLI no requiere una fase de bundling ni una instalación de paquetes JavaScript. Para probarla localmente, use un archivo Lua de ejemplo:
 
 ```sh
-npm install
-npm run build   # embeds Lua and bundles both the UI and Worker entrypoints
+cat > /tmp/fengetheus-example.lua <<'LUA'
+local function greet(name)
+  return "Hello, " .. name .. "!"
+end
+
+print(greet("World"))
+LUA
+
+bin/fengetheus --preset Medium --out /tmp/fengetheus-output.lua /tmp/fengetheus-example.lua
 ```
 
-Then just open `web/index.html` in a browser (or serve the `web/` folder with
-any static file server — no build step is needed at request time, everything is
-pre-bundled). The normal UI sends work to `web/dist/worker.js`, so the tab remains
-responsive while LuaNode-VM processes large inputs.
+La salida debe ser un archivo Lua válido que pueda ejecutarse con el intérprete correspondiente al objetivo seleccionado. Los mensajes de progreso y los errores se imprimen en la terminal.
 
-For background delivery, deploy the repository to Vercel. The included
-`vercel.json` runs `npm run build`, serves `web/`, and exposes `api/jobs.js`
-under the same domain. In the page, enable **Run in background and deliver by
-webhook**, enter the webhook, and press `Obfuscate`; no service URL is required.
-The browser receives an accepted job ID immediately and can be closed. Vercel
-runs the job within the configured function duration and sends either the output
-file or a failure event to the webhook.
-
-
-To re-run the regression test (needs a `lua5.3` binary on your `PATH` —
-`apt-get install lua5.3` on Debian/Ubuntu):
+La prueba de humo puede ejecutarse con:
 
 ```sh
-npm test
+test/cli-smoke.sh
 ```
 
-## Deploying to GitHub Pages
+Si el intérprete no se llama `lua`, define `LUA_BIN` antes de ejecutarla, por ejemplo `LUA_BIN=lua5.3 test/cli-smoke.sh`.
 
-1. Push this repo to GitHub.
-2. In the repo's **Settings → Pages**, set **Source** to **GitHub Actions**.
-3. Push to `main` (or run the workflow manually from the **Actions** tab).
+## Créditos
 
-The included workflow (`.github/workflows/pages.yml`) runs `npm run build`
-in CI and deploys the `web/` folder — you never need to commit the generated
-`lua-modules.generated.js` or `dist/bundle.js` files.
-
-## Presets
-
-| Preset | What it does | Reliability |
-|---|---|---|
-| `Minify` | Strips whitespace/comments, renames locals | Always reliable |
-| `Weak` | Minify + light control-flow obfuscation | Always reliable |
-| `Medium` | Adds string encryption, a constant array, a bytecode VM layer | Self-tested & retried; rare cases get flagged |
-| `Strong` | Everything Medium has, more aggressively | Self-tested & retried; rare cases get flagged |
-
-## Credits & attribution
-
-Fengetheus is a fork/derivative of
-[Prometheus](https://github.com/prometheus-lua/Prometheus) by Elias
-Oelschner, https://github.com/prometheus-lua/Prometheus — the obfuscation
-engine itself (everything under `src/`) is Prometheus's code, essentially
-unmodified.
-
-- Prometheus itself is licensed under the [Prometheus License](./LICENSE)
-  (permissive, MIT-like, with a mandatory-attribution clause — see the
-  license file for the exact terms; this README and the site's footer
-  satisfy it).
-- Fengetheus's own code (the web playground, build scripts, file-attach UI,
-  self-verification engine) is MIT.
-- [LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM) — Lua 5.3 VM in
-  JavaScript with true 64-bit integer support via BigInt (MIT), a fork of
-  [Fengari](https://fengari.io) (also MIT). LuaNode-VM is vendored directly
-  under `vendor/luanode-vm/` and exposed to the rest of the project as the
-  `fengari` package alias (drop-in compatible API).
-
-See [CHANGELOG.md](./CHANGELOG.md) for what's changed since the original
-Prometheus-in-the-browser build this was forked from.
+Fengetheus deriva de [Prometheus](https://github.com/prometheus-lua/Prometheus), creado por Elias Oelschner. El motor y las transformaciones se mantienen bajo las condiciones indicadas en `LICENSE`; las modificaciones específicas de Fengetheus están descritas en `PATCHES.md`.

@@ -55,15 +55,15 @@ local function get_version()
 end
 
 local function print_help()
-	print("Prometheus Lua CLI")
-	print("Usage: prometheus-lua [command] [options] <input.lua>")
+	print("Fengetheus Lua CLI")
+	print("Usage: fengetheus [command] [options] <input.lua>")
 	print("")
 	print("Commands:")
 	print("  update                 Install latest release via installer script")
 	print("  --version, -v          Print CLI version")
 	print("")
 	print("Obfuscation options:")
-	print("  --preset, --p <name>   Use preset (e.g. Minify, Medium, High)")
+	print("  --preset, --p <name>   Use preset (e.g. Minify, Medium, Strong)")
 	print("  --config, --c <file>   Use custom config Lua file")
 	print("  --out, --o <file>      Set output path")
 	print("  --Lua51                Force Lua 5.1 target")
@@ -84,7 +84,7 @@ local function run_update()
 		os.exit(1)
 	end
 
-	print("Updating prometheus-lua using official installer")
+	print("Updating Fengetheus using the official Prometheus installer")
 	if not run_shell(command) then
 		io.stderr:write("Update failed\n")
 		os.exit(1)

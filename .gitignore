@@ -1,16 +1,12 @@
-# Dependencies
-node_modules/
+# Local/editor files
+.DS_Store
+*.swp
+*.swo
 
-# Vendored packages — never commit; load via npm/git dependencies instead
-vendor/
-
-# npm
-package-lock.json
-
-# Build output is committed; keep runtime logs out:
+# Runtime output and CLI diagnostics
 *.log
+*.error.txt
 
 # Temporary / scratch files
-test-bisect-tmp.mjs
-test/suite-results.json
 /tmp/
+test-bisect-tmp.mjs
