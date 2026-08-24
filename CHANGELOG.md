@@ -11,6 +11,9 @@ before/after diffs and root-cause writeups behind each entry, see
 
 ---
 
+## Fixed — Strong on large scripts
+The CLI now detects inputs of at least 100 KiB when `--preset Strong` is selected. Strong's VM, local-proxy, split-string, and repeated ConstantArray layers can otherwise generate a function that exceeds Lua's local-variable or nesting limits even when the source parses correctly. Such inputs now use the validated `StrongScalable` profile and emit a warning; explicit `--config` files are never replaced automatically. `dmvs65.lua` now produces syntactically valid Lua with this path.
+
 ## Changed — CLI-only distribution
 The repository now ships the native Lua engine and command-line entrypoint as its only execution path. The browser interface, background job service, JavaScript bundling, and deployment configuration were removed. The `bin/fengetheus` launcher and `test/cli-smoke.sh` provide the supported local workflow.
 

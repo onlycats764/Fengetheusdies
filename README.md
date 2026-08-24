@@ -29,7 +29,7 @@ Si no se especifica `--out`, la CLI genera un archivo junto al original con el s
 
 | Opción | Descripción |
 |---|---|
-| `--preset`, `--p <nombre>` | Selecciona `Minify`, `Weak`, `Medium` o `Strong`. |
+| `--preset`, `--p <nombre>` | Selecciona `Minify`, `Weak`, `Medium`, `Strong` o `StrongScalable`. En entradas de 100 KiB o más, `Strong` activa automáticamente `StrongScalable` para evitar límites del intérprete. |
 | `--config`, `--c <archivo>` | Carga una configuración Lua personalizada. |
 | `--out`, `--o <archivo>` | Define la ruta del archivo de salida. |
 | `--Lua51` | Fuerza el objetivo Lua 5.1. |
@@ -41,7 +41,7 @@ Si no se especifica `--out`, la CLI genera un archivo junto al original con el s
 | `--help`, `-h` | Muestra la ayuda completa. |
 | `update` | Ejecuta el actualizador oficial de Prometheus. |
 
-Los presets disponibles ofrecen distintos compromisos entre legibilidad, tamaño, tiempo de ejecución y resistencia a la ingeniería inversa. `Minify` solo minimiza; `Weak`, `Medium` y `Strong` agregan capas progresivas de transformación y ofuscación.
+Los presets disponibles ofrecen distintos compromisos entre legibilidad, tamaño, tiempo de ejecución y resistencia a la ingeniería inversa. `Minify` solo minimiza; `Weak`, `Medium` y `Strong` agregan capas progresivas de transformación y ofuscación. `StrongScalable` conserva cifrado de cadenas, anti-tamper, array de constantes barajado/rotado, mutación de expresiones numéricas y envoltura en función, pero omite las capas que pueden generar una salida que supere los límites de locales o anidamiento de Lua en archivos muy grandes.
 
 ## Estructura del proyecto
 

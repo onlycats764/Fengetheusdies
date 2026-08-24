@@ -173,6 +173,7 @@ end
 local function run_cli()
 	-- CLI
 	local config, sourceFile, outFile, luaVersion, prettyPrint
+	local selectedPresetName
 
 	Prometheus.colors.enabled = true
 
@@ -192,6 +193,7 @@ local function run_cli()
 					Prometheus.Logger:error(string.format('A Preset with the name "%s" was not found!', tostring(arg[i])))
 				end
 
+				selectedPresetName = tostring(arg[i])
 				config = preset
 			elseif curr == "--config" or curr == "--c" then
 				i = i + 1
@@ -207,6 +209,7 @@ local function run_cli()
 					Prometheus.Logger:error(string.format('Failed to parse config file "%s": %s', filename, tostring(err)))
 				end
 				config = func()
+				selectedPresetName = nil
 			elseif curr == "--out" or curr == "--o" then
 				i = i + 1
 				if outFile then
@@ -274,6 +277,24 @@ local function run_cli()
 	end
 
 	local source = table.concat(lines_from(sourceFile), "\n")
+
+	-- Lua limits each function to 200 local variables and a finite nesting
+	-- depth. Strong's VM, local proxies, split-string helpers and two
+	-- ConstantArray passes can exceed those limits on large scripts even when
+	-- the source itself is valid. Fall back to the validated scalable profile
+	-- only for the built-in Strong preset; explicit custom configs remain
+	-- untouched so their behavior is predictable.
+	local STRONG_SCALABLE_THRESHOLD = 100 * 1024
+	if selectedPresetName == "Strong" and #source >= STRONG_SCALABLE_THRESHOLD then
+		Prometheus.Logger:warn(string.format(
+			"Input is %.0f KB; Strong would exceed Lua function limits. Using StrongScalable to keep the generated file loadable.",
+			#source / 1024
+		))
+		config = Prometheus.Presets.StrongScalable
+		config.LuaVersion = luaVersion or config.LuaVersion
+		config.PrettyPrint = prettyPrint ~= nil and prettyPrint or config.PrettyPrint
+	end
+
 	local pipeline = Prometheus.Pipeline:fromConfig(config)
 	local out = pipeline:apply(source, sourceFile)
 	Prometheus.Logger:info(string.format('Writing output to "%s"', outFile))

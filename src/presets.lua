@@ -197,4 +197,44 @@ return {
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
+
+	-- StrongScalable is used by the CLI for very large scripts whose generated
+	-- Strong output would exceed Lua's per-function local-variable or nesting
+	-- limits. It retains string encryption, anti-tamper, a shuffled/rotated
+	-- constant array, numeric expression mutation, and function wrapping while
+	-- avoiding the VM, local proxification, split-string helpers, and second
+	-- ConstantArray pass that can make a large result unloadable.
+	["StrongScalable"] = {
+		LuaVersion = "Lua51",
+		VarNamePrefix = "",
+		NameGenerator = "MangledShuffled",
+		PrettyPrint = false,
+		Seed = 0,
+		Steps = {
+			{ Name = "EncryptStrings", Settings = {} },
+			{
+				Name = "AntiTamper",
+				Settings = {
+					UseDebug = false,
+				},
+			},
+			{
+				Name = "ConstantArray",
+				Settings = {
+					Threshold = 1,
+					StringsOnly = false,
+					Shuffle = true,
+					Rotate = true,
+					LocalWrapperThreshold = 0,
+				},
+			},
+			{
+				Name = "NumbersToExpressions",
+				Settings = {
+					NumberRepresentationMutation = true,
+				},
+			},
+			{ Name = "WrapInFunction", Settings = {} },
+		},
+	},
 }
