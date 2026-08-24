@@ -8,6 +8,7 @@ return {
 	AddVararg = require("prometheus.steps.AddVararg");
 	AntiTamper = require("prometheus.steps.AntiTamper");
 	ConstantArray = require("prometheus.steps.ConstantArray");
+	ConditionCamouflage = require("prometheus.steps.ConditionCamouflage");
 	EncryptStrings = require("prometheus.steps.EncryptStrings");
 	NumbersToExpressions = require("prometheus.steps.NumbersToExpressions");
 	ProxifyLocals = require("prometheus.steps.ProxifyLocals");

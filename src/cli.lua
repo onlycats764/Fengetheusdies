@@ -284,7 +284,11 @@ local function run_cli()
 	-- the source itself is valid. Fall back to the validated scalable profile
 	-- only for the built-in Strong preset; explicit custom configs remain
 	-- untouched so their behavior is predictable.
-	local STRONG_SCALABLE_THRESHOLD = 100 * 1024
+	-- Lua 5.1 rejects a generated function once its control structure grows
+	-- beyond the VM limit. The real-world loader fixture is ~75 KiB and is
+	-- already large enough to trigger that limit with Strong, so keep the
+	-- automatic scalable fallback conservative at 64 KiB.
+	local STRONG_SCALABLE_THRESHOLD = 64 * 1024
 	if selectedPresetName == "Strong" and #source >= STRONG_SCALABLE_THRESHOLD then
 		Prometheus.Logger:warn(string.format(
 			"Input is %.0f KB; Strong would exceed Lua function limits. Using StrongScalable to keep the generated file loadable.",

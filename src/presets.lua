@@ -88,7 +88,7 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
-			{ Name = "EncryptStrings", Settings = {} },
+				{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
 				Settings = {
@@ -100,6 +100,7 @@ return {
 					CustomLocalFunctionsCount = 1,
 				},
 			},
+			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.55 } },
 			{
 				Name = "AntiTamper",
 				Settings = {
