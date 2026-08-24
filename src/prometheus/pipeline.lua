@@ -167,7 +167,21 @@ function Pipeline:apply(code, filename)
 	else
 		--> use secure random number generator
 		local success, seed = pcall(function()
-			local seedStr =  io.popen("openssl rand -hex 12"):read("*a"):gsub("\n", "")..""
+			-- Avoid invoking a shell command when this host has no popen. On
+			-- Windows, a missing openssl executable prints an error even when
+			-- the surrounding pcall catches the failure.
+			if isWindows or type(io) ~= "table" or type(io.popen) ~= "function" then
+				error("io.popen is unavailable")
+			end
+			local handle = io.popen("openssl rand -hex 12", "r")
+			if not handle then
+				error("openssl could not be started")
+			end
+			local seedStr = handle:read("*a"):gsub("%s", "")
+			handle:close()
+			if #seedStr ~= 24 or not seedStr:match("^[0-9a-fA-F]+$") then
+				error("openssl returned invalid entropy")
+			end
 			local seedNum = 0;
 
 			--> NOTE: tonumber caps at 1.844674407371e+19. So we use this instead.
