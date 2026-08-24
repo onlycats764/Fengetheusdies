@@ -29,7 +29,7 @@ Si no se especifica `--out`, la CLI genera un archivo junto al original con el s
 
 | Opción | Descripción |
 |---|---|
-| `--preset`, `--p <nombre>` | Selecciona `Minify`, `Weak`, `Medium`, `Strong` o `StrongScalable`. En entradas de 64 KiB o más, `Strong` activa automáticamente `StrongScalable` para evitar límites del intérprete. |
+| `--preset`, `--p <nombre>` | Selecciona `Minify`, `Weak`, `Medium`, `Strong` o `StrongScalable`. `Strong` siempre aplica todas sus capas; `StrongScalable` es un perfil alternativo explícito para entradas grandes. |
 | `--config`, `--c <archivo>` | Carga una configuración Lua personalizada. |
 | `--out`, `--o <archivo>` | Define la ruta del archivo de salida. |
 | `--Lua51` | Fuerza el objetivo Lua 5.1. |

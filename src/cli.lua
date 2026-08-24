@@ -278,27 +278,6 @@ local function run_cli()
 
 	local source = table.concat(lines_from(sourceFile), "\n")
 
-	-- Lua limits each function to 200 local variables and a finite nesting
-	-- depth. Strong's VM, local proxies, split-string helpers and two
-	-- ConstantArray passes can exceed those limits on large scripts even when
-	-- the source itself is valid. Fall back to the validated scalable profile
-	-- only for the built-in Strong preset; explicit custom configs remain
-	-- untouched so their behavior is predictable.
-	-- Lua 5.1 rejects a generated function once its control structure grows
-	-- beyond the VM limit. The real-world loader fixture is ~75 KiB and is
-	-- already large enough to trigger that limit with Strong, so keep the
-	-- automatic scalable fallback conservative at 64 KiB.
-	local STRONG_SCALABLE_THRESHOLD = 64 * 1024
-	if selectedPresetName == "Strong" and #source >= STRONG_SCALABLE_THRESHOLD then
-		Prometheus.Logger:warn(string.format(
-			"Input is %.0f KB; Strong would exceed Lua function limits. Using StrongScalable to keep the generated file loadable.",
-			#source / 1024
-		))
-		config = Prometheus.Presets.StrongScalable
-		config.LuaVersion = luaVersion or config.LuaVersion
-		config.PrettyPrint = prettyPrint ~= nil and prettyPrint or config.PrettyPrint
-	end
-
 	local pipeline = Prometheus.Pipeline:fromConfig(config)
 	local out = pipeline:apply(source, sourceFile)
 	Prometheus.Logger:info(string.format('Writing output to "%s"', outFile))
