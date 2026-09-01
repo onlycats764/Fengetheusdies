@@ -21,7 +21,7 @@ return function(self, statement, funcDepth)
         end
     until statScope == statement.loop.body.scope;
 
-    for i, var in pairs(toFreeVars) do
+    for i, var in ipairs(toFreeVars) do
         local varScope, id = var.scope, var.id;
         local varReg = self:getVarRegister(varScope, id, nil, nil);
         if self:isUpvalue(varScope, id) then

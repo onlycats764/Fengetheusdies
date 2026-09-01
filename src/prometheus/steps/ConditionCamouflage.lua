@@ -49,7 +49,7 @@ function ConditionCamouflage:apply(ast)
 			node.condition = camouflage(node.condition, threshold)
 		elseif node.kind == AstKind.IfElseExpression then
 			node.condition = camouflage(node.condition, threshold)
-			for _, elseifNode in pairs(node.elseifs) do
+			for _, elseifNode in ipairs(node.elseifs) do
 				elseifNode.condition = camouflage(elseifNode.condition, threshold)
 			end
 		end

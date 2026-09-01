@@ -326,7 +326,7 @@ function SplitStrings:apply(ast, pipeline)
 
 
 	if(self.ConcatenationType == "table") then
-		local globalScope = data.globalScope;
+		local globalScope = ast.globalScope;
 		local tableScope, tableId = globalScope:resolve("table")
 		ast.body.scope:addReferenceToHigherScope(globalScope, tableId);
 		table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(data.tableConcatScope, {data.tableConcatId},

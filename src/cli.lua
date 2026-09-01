@@ -215,6 +215,13 @@ local function run_cli()
 				luaVersion = "LuaU"
 			elseif curr == "--pretty" then
 				prettyPrint = true
+		elseif curr == "--seed" then
+			i = i + 1
+			local sval = tonumber(arg[i])
+			if not sval then
+				Prometheus.Logger:error(string.format('The seed "%s" is not a valid number', tostring(arg[i])))
+			end
+			seed = sval
 			elseif curr == "--saveerrors" then
 				-- Override error callback
 				Prometheus.Logger.errorCallback = function(...)
@@ -254,6 +261,9 @@ local function run_cli()
 	-- Add Option to override Lua Version
 	config.LuaVersion = luaVersion or config.LuaVersion
 	config.PrettyPrint = prettyPrint ~= nil and prettyPrint or config.PrettyPrint
+	if seed ~= nil then
+		config.Seed = seed
+	end
 
 	if not file_exists(sourceFile) then
 		Prometheus.Logger:error(string.format('The File "%s" was not found!', sourceFile))

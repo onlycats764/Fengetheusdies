@@ -93,7 +93,13 @@ function ProxifyLocals:init(_) end
 local function generateLocalMetatableInfo(pipeline)
     local usedOps = {};
     local info = {};
-    for i, v in ipairs({"setValue", "getValue", "index"}) do
+    -- Only getValue and setValue are actually emitted into the proxy
+    -- metatable (see CreateAssignmentExpression). The original code also
+    -- assigned an "index" role, but that value was never read anywhere -
+    -- it merely consumed an extra math.random draw per local, perturbing
+    -- the random stream for every subsequent step (ConstantArray,
+    -- NumbersToExpressions, …) without producing any obfuscation.
+    for _, v in ipairs({"setValue", "getValue"}) do
         local rop;
         repeat
             rop = MetatableExpressions[math.random(#MetatableExpressions)];
@@ -102,7 +108,17 @@ local function generateLocalMetatableInfo(pipeline)
         info[v] = rop;
     end
 
-    info.valueName = callNameGenerator(pipeline.namegenerator, math.random(1, 4096));
+    -- The valueName is used both as a table key (fine for any string) AND,
+    -- for FunctionDeclaration nodes, as a dot-index in `function T.name.field()`.
+    -- Lua 5.1 / LuaU have no bracket syntax for function-statement indices, so
+    -- a keyword like "do" or "end" produces invalid source (`function G.do()` is
+    -- a parse error). Regenerate until we get a non-keyword identifier.
+    local keywordList = pipeline.conventions and pipeline.conventions.Keywords or {};
+    local keywordLookup = {};
+    for _, kw in ipairs(keywordList) do keywordLookup[kw] = true; end
+    repeat
+        info.valueName = callNameGenerator(pipeline.namegenerator, math.random(1, 4096));
+    until not keywordLookup[info.valueName];
 
     return info;
 end
@@ -135,7 +151,15 @@ function ProxifyLocals:CreateAssignmentExpression(info, expr, parentScope)
     local getValueArg = getValueFunctionScope:addVariable();
     local getValueIdxExpr;
     if(info.getValue.key == "__index" or info.setValue.key == "__index") then
-        getValueIdxExpr = Ast.FunctionCallExpression(Ast.VariableExpression(getValueFunctionScope:resolveGlobal("rawget")), {
+        -- resolveGlobal returns (scope, id); the previous code passed only the
+        -- scope to Ast.VariableExpression, dropping the id and producing a node
+        -- whose getVariableName(nil) returns nil. That nil name then propagates
+        -- into the generated source (e.g. `rawget(...)` becoming `<nil>(...)`,
+        -- or, after ConstantArray/renaming, a reference to a non-existent
+        -- local), which surfaces at runtime as "attempt to call a nil value".
+        -- Capture both return values and use the real id.
+        local rawgetScope, rawgetId = getValueFunctionScope:resolveGlobal("rawget");
+        getValueIdxExpr = Ast.FunctionCallExpression(Ast.VariableExpression(rawgetScope, rawgetId), {
             Ast.VariableExpression(getValueFunctionScope, getValueSelf),
             Ast.StringExpression(info.valueName),
         });
@@ -393,8 +417,11 @@ function ProxifyLocals:apply(ast, pipeline)
     end)
 
     -- Add Setmetatable Variable Declaration
+    -- resolveGlobal returns (scope, id); keep both so the VariableExpression
+    -- references the real global id (same fix as the rawget call above).
+    local setmetaScope, setmetaId = self.setMetatableVarScope:resolveGlobal("setmetatable");
     table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.setMetatableVarScope, {self.setMetatableVarId}, {
-        Ast.VariableExpression(self.setMetatableVarScope:resolveGlobal("setmetatable"))
+        Ast.VariableExpression(setmetaScope, setmetaId)
     }));
 end
 
