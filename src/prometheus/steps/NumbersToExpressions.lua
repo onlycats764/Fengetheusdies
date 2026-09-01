@@ -6,7 +6,11 @@
 -- This step can now also convert numbers to different representations!
 -- Supported representations: hex, binary, scientific, normal. Please note that binary is only supported in Lua 5.2 and above.
 
-unpack = unpack or table.unpack
+-- Lua 5.3 (including Fengari) no longer exposes unpack globally. Keep this
+-- module compatible with both Lua 5.1 and Lua 5.2+ without leaking a global
+-- assignment into the host environment (the previous `unpack = unpack or
+-- table.unpack` wrote to _G.unpack, polluting the obfuscator's own VM).
+local unpack = table.unpack or unpack
 
 local Step = require("prometheus.step")
 local Ast = require("prometheus.ast")

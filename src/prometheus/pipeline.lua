@@ -114,12 +114,11 @@ function Pipeline:getSteps()
 	return self.steps;
 end
 
-function Pipeline:setOption(name, _)
-	assert(false, "TODO");
+function Pipeline:setOption(name, value)
 	if(Pipeline.DefaultSettings[name] ~= nil) then
-
+		self[name] = value;
 	else
-		logger:error(string.format("\"%s\" is not a valid setting"));
+		logger:error(string.format("\"%s\" is not a valid setting", name));
 	end
 end
 
@@ -130,8 +129,9 @@ function Pipeline:setLuaVersion(luaVersion)
 			.. "\" is not recognized by the Tokenizer! Please use one of the following: \"" .. table.concat(util.keys(Enums.Conventions), "\",\"") .. "\"");
 	end
 
+	self.LuaVersion = luaVersion;
 	self.parser = Parser:new({
-		luaVersion = luaVersion;
+		LuaVersion = luaVersion;
 	});
 	self.unparser = Unparser:new({
 		LuaVersion = luaVersion;
@@ -140,7 +140,7 @@ function Pipeline:setLuaVersion(luaVersion)
 end
 
 function Pipeline:getLuaVersion()
-	return self.luaVersion;
+	return self.LuaVersion;
 end
 
 function Pipeline:setNameGenerator(nameGenerator)

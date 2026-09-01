@@ -35,6 +35,41 @@ return {
 		Steps = {},
 	},
 
+
+	-- Balanced obfuscation. Medium-strength protection with minimal
+	-- performance loss and NO register/locals-limit risk, so it works on
+	-- large LuaU/Roblox scripts where Weak (Vmify -> 255-register limit),
+	-- Medium (Vmify + SplitStrings) and Strong (ProxifyLocals -> 200-locals
+	-- limit) can fail to even load. Omits the bytecode VM (Vmify) and local
+	-- proxification (ProxifyLocals); keeps string encryption, a
+	-- shuffled/rotated strings-only constant array, numeric expression
+	-- mutation, anti-tamper and function wrapping. Override the target with
+	-- --LuaU when obfuscating LuaU scripts that use `continue`/compound
+	-- assignment (the VM-less pipeline preserves those as native syntax,
+	-- which Roblox executors support).
+	["Balanced"] = {
+		LuaVersion = "Lua51",
+		VarNamePrefix = "",
+		NameGenerator = "MangledShuffled",
+		PrettyPrint = false,
+		Seed = 0,
+		Steps = {
+			{ Name = "EncryptStrings", Settings = {} },
+			{
+				Name = "ConstantArray",
+				Settings = {
+					Threshold = 1,
+					StringsOnly = true,
+					Shuffle = true,
+					Rotate = true,
+					LocalWrapperThreshold = 0,
+				},
+			},
+			{ Name = "NumbersToExpressions", Settings = {} },
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "WrapInFunction", Settings = {} },
+		},
+	},
 	-- Weak obfuscation. Very readable, low performance loss.
 	-- Strengthened: ConstantArray now shuffles and rotates its index array,
 	-- making the constant lookup less trivially reversible at no correctness

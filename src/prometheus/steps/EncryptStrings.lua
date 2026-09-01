@@ -84,7 +84,6 @@ function EncryptStrings:CreateEncryptionService()
 			local b4 = (high_16 - b3) / 256
 			prev_values = { b1, b2, b3, b4 }
 		end
-		--print(unpack(prev_values))
 		return table.remove(prev_values)
 	end
 

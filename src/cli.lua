@@ -63,7 +63,7 @@ local function print_help()
 	print("  --version, -v          Print CLI version")
 	print("")
 	print("Obfuscation options:")
-	print("  --preset, --p <name>   Use preset (e.g. Minify, Medium, Strong)")
+	print("  --preset, --p <name>   Use preset (e.g. Minify, Balanced, Medium, Strong)")
 	print("  --config, --c <file>   Use custom config Lua file")
 	print("  --out, --o <file>      Set output path")
 	print("  --Lua51                Force Lua 5.1 target")
@@ -125,15 +125,6 @@ local function file_exists(file)
 		f:close()
 	end
 	return f ~= nil
-end
-
-string.split = function(str, sep)
-	local fields = {}
-	local pattern = string.format("([^%s]+)", sep)
-	str:gsub(pattern, function(c)
-		fields[#fields + 1] = c
-	end)
-	return fields
 end
 
 -- get all lines from a file, returns an empty
