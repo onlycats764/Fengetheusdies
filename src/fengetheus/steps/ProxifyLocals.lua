@@ -232,6 +232,21 @@ function ProxifyLocals:apply(ast, pipeline)
         Ast.FunctionLiteralExpression({}, Ast.Block({}, Scope:new(ast.body.scope)));
     }));
 
+    -- Lock the two internal helper locals (setmetatable alias + empty discard
+    -- function) so they are NOT themselves proxified. These are bookkeeping
+    -- variables that ProxifyLocals itself emits - they carry zero obfuscation
+    -- value (an attacker already knows the obfuscator's helpers exist) and
+    -- wrapping them in proxies only adds cost. In particular, EVERY proxified
+    -- write is rewritten as `emptyfunc((var OP value))`; if `emptyfunc` is
+    -- itself proxified, each write pays an extra metamethod dispatch + table
+    -- lookup just to retrieve the do-nothing function before calling it. By
+    -- keeping both helpers as plain locals, writes stay a single direct
+    -- function call with no metamethod overhead on the helper side. This
+    -- preserves the exact same obfuscation of every user-defined local while
+    -- removing a per-write metamethod call.
+    disableMetatableInfo(self.setMetatableVarScope, self.setMetatableVarId);
+    disableMetatableInfo(self.emptyFunctionScope, self.emptyFunctionId);
+
     -- Pre-scan: lock any local that the ORIGINAL script itself uses as a metatable, by
     -- literally assigning one of the reserved metamethod names (__add, __sub, __index,
     -- __mul, __div, __pow, __concat) as a field on it - e.g. the extremely common Lua OOP
