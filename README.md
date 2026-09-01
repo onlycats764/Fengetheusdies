@@ -48,8 +48,8 @@ Los presets disponibles ofrecen distintos compromisos entre legibilidad, tamaño
 ```text
 src/
   cli.lua                  Entrada principal de la CLI.
-  prometheus.lua           Inicialización y exportación del motor.
-  prometheus/              Compilador, presets y transformaciones Lua.
+  fengetheus.lua           Inicialización y exportación del motor.
+  fengetheus/              Compilador, presets y transformaciones Lua.
 bin/
   fengetheus               Lanzador POSIX para ejecutar la CLI desde el clon.
 LICENSE                    Licencias y atribuciones del proyecto.

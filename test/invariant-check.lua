@@ -19,8 +19,8 @@
 --      Anything else breaks the scope chain ConstantArray walks.
 --
 -- Returns the number of real violations found (0 = invariant holds).
-local Ast = require("prometheus.ast");
-local visitast = require("prometheus.visitast");
+local Ast = require("fengetheus.ast");
+local visitast = require("fengetheus.visitast");
 
 local function ancestorsOf(scope)
 	local set = {};

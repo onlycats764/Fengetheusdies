@@ -1,8 +1,8 @@
--- This Script is Part of the Prometheus Obfuscator by levno-710
+-- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- logger.lua
 --
--- This Script provides a Logger for Prometheus.
+-- This Script provides a Logger for Fengetheus.
 
 local logger = {}
 local config = require("config");

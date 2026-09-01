@@ -4,8 +4,8 @@
 -- defining scope's ancestors (i.e. calls ConstantArray makes from inside
 -- a structurally-anomalous compiler-generated closure).
 -- Returns a table that collects the anomalies; call flush() to print.
-local Scope = require("prometheus.scope");
-local ScopeMod = require("prometheus.scope");
+local Scope = require("fengetheus.scope");
+local ScopeMod = require("fengetheus.scope");
 
 local oldAdd = Scope.addReferenceToHigherScope;
 local anomalies = {};

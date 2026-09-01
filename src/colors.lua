@@ -1,5 +1,5 @@
 
--- This Script is Part of the Prometheus Obfuscator by levno-710
+-- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- colors.lua
 --

@@ -1,8 +1,8 @@
--- This Script is Part of the Prometheus Obfuscator by levno-710
+-- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- presets.lua
 --
--- This Script provides the predefined obfuscation presets for Prometheus
+-- This Script provides the predefined obfuscation presets for Fengetheus
 --
 -- Fengetheus preset tuning notes:
 --   The Weak/Medium/Strong presets were strengthened by activating features

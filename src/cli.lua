@@ -1,10 +1,10 @@
--- This Script is Part of the Prometheus Obfuscator by levno-710
+-- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- cli.lua
 --
--- This Script contains the Code for the Prometheus CLI.
+-- This Script contains the Code for the Fengetheus CLI.
 
--- Configure package.path for requiring Prometheus.
+-- Configure package.path for requiring Fengetheus.
 local function script_path()
 	local source = debug.getinfo(2, "S").source
 	if type(source) == "string" and source:sub(1, 1) == "@" then
@@ -27,7 +27,7 @@ end
 -- directory, which is how a locally-cloned checkout is normally run, and
 -- also how the test harness in this repo invokes it). Falling through to
 -- `nil .. "?.lua;"` crashes before a single argument is even parsed. Guard
--- it exactly like prometheus.lua already does for the same pattern.
+-- it exactly like fengetheus.lua already does for the same pattern.
 local resolvedScriptPath = script_path()
 if resolvedScriptPath then
 	package.path = resolvedScriptPath .. "?.lua;" .. package.path
@@ -47,7 +47,7 @@ local function run_shell(command)
 end
 
 local function get_version()
-	local version = os.getenv("PROMETHEUS_LUA_VERSION")
+	local version = os.getenv("FENGETHEUS_LUA_VERSION")
 	if version and version ~= "" then
 		return version
 	end
@@ -109,12 +109,12 @@ if arg[1] == "--help" or arg[1] == "-h" or arg[1] == "help" then
 end
 
 ---@diagnostic disable-next-line: different-requires
-local Prometheus = require("prometheus")
-Prometheus.Logger.logLevel = Prometheus.Logger.LogLevel.Info
-Prometheus.Logger.errorCallback = function(...)
+local Fengetheus = require("fengetheus")
+Fengetheus.Logger.logLevel = Fengetheus.Logger.LogLevel.Info
+Fengetheus.Logger.errorCallback = function(...)
 	local args = { ... }
 	local message = table.concat(args, " ")
-	io.stderr:write(Prometheus.colors(Prometheus.Config.NameUpper .. ": " .. message, "red") .. "\n")
+	io.stderr:write(Fengetheus.colors(Fengetheus.Config.NameUpper .. ": " .. message, "red") .. "\n")
 	os.exit(1)
 end
 
@@ -166,7 +166,7 @@ local function run_cli()
 	local config, sourceFile, outFile, luaVersion, prettyPrint
 	local selectedPresetName
 
-	Prometheus.colors.enabled = true
+	Fengetheus.colors.enabled = true
 
 	-- Parse Arguments
 	local i = 1
@@ -175,13 +175,13 @@ local function run_cli()
 		if curr:sub(1, 2) == "--" then
 			if curr == "--preset" or curr == "--p" then
 				if config then
-					Prometheus.Logger:warn("The config was set multiple times")
+					Fengetheus.Logger:warn("The config was set multiple times")
 				end
 
 				i = i + 1
-				local preset = Prometheus.Presets[arg[i]]
+				local preset = Fengetheus.Presets[arg[i]]
 				if not preset then
-					Prometheus.Logger:error(string.format('A Preset with the name "%s" was not found!', tostring(arg[i])))
+					Fengetheus.Logger:error(string.format('A Preset with the name "%s" was not found!', tostring(arg[i])))
 				end
 
 				selectedPresetName = tostring(arg[i])
@@ -190,25 +190,25 @@ local function run_cli()
 				i = i + 1
 				local filename = tostring(arg[i])
 				if not file_exists(filename) then
-					Prometheus.Logger:error(string.format('The config file "%s" was not found!', filename))
+					Fengetheus.Logger:error(string.format('The config file "%s" was not found!', filename))
 				end
 
 				local content = table.concat(lines_from(filename), "\n")
 				-- Load Config from File
 				local func, err = load_chunk(content, "@" .. filename, {})
 				if not func then
-					Prometheus.Logger:error(string.format('Failed to parse config file "%s": %s', filename, tostring(err)))
+					Fengetheus.Logger:error(string.format('Failed to parse config file "%s": %s', filename, tostring(err)))
 				end
 				config = func()
 				selectedPresetName = nil
 			elseif curr == "--out" or curr == "--o" then
 				i = i + 1
 				if outFile then
-					Prometheus.Logger:warn("The output file was specified multiple times!")
+					Fengetheus.Logger:warn("The output file was specified multiple times!")
 				end
 				outFile = arg[i]
 			elseif curr == "--nocolors" then
-				Prometheus.colors.enabled = false
+				Fengetheus.colors.enabled = false
 			elseif curr == "--Lua51" then
 				luaVersion = "Lua51"
 			elseif curr == "--LuaU" then
@@ -219,15 +219,15 @@ local function run_cli()
 			i = i + 1
 			local sval = tonumber(arg[i])
 			if not sval then
-				Prometheus.Logger:error(string.format('The seed "%s" is not a valid number', tostring(arg[i])))
+				Fengetheus.Logger:error(string.format('The seed "%s" is not a valid number', tostring(arg[i])))
 			end
 			seed = sval
 			elseif curr == "--saveerrors" then
 				-- Override error callback
-				Prometheus.Logger.errorCallback = function(...)
+				Fengetheus.Logger.errorCallback = function(...)
 					local args = { ... }
 					local message = table.concat(args, " ")
-					io.stderr:write(Prometheus.colors(Prometheus.Config.NameUpper .. ": " .. message, "red") .. "\n")
+					io.stderr:write(Fengetheus.colors(Fengetheus.Config.NameUpper .. ": " .. message, "red") .. "\n")
 
 					local fileName = sourceFile:sub(-4) == ".lua" and sourceFile:sub(0, -5) .. ".error.txt"
 						or sourceFile .. ".error.txt"
@@ -238,11 +238,11 @@ local function run_cli()
 					os.exit(1)
 				end
 			else
-				Prometheus.Logger:warn(string.format('The option "%s" is not valid and therefore ignored', curr))
+				Fengetheus.Logger:warn(string.format('The option "%s" is not valid and therefore ignored', curr))
 			end
 		else
 			if sourceFile then
-				Prometheus.Logger:error(string.format('Unexpected argument "%s"', arg[i]))
+				Fengetheus.Logger:error(string.format('Unexpected argument "%s"', arg[i]))
 			end
 			sourceFile = tostring(arg[i])
 		end
@@ -250,12 +250,12 @@ local function run_cli()
 	end
 
 	if not sourceFile then
-		Prometheus.Logger:error("No input file was specified!")
+		Fengetheus.Logger:error("No input file was specified!")
 	end
 
 	if not config then
-		Prometheus.Logger:warn("No config was specified, falling back to Minify preset")
-		config = Prometheus.Presets.Minify
+		Fengetheus.Logger:warn("No config was specified, falling back to Minify preset")
+		config = Fengetheus.Presets.Minify
 	end
 
 	-- Add Option to override Lua Version
@@ -266,7 +266,7 @@ local function run_cli()
 	end
 
 	if not file_exists(sourceFile) then
-		Prometheus.Logger:error(string.format('The File "%s" was not found!', sourceFile))
+		Fengetheus.Logger:error(string.format('The File "%s" was not found!', sourceFile))
 	end
 
 	if not outFile then
@@ -279,9 +279,9 @@ local function run_cli()
 
 	local source = table.concat(lines_from(sourceFile), "\n")
 
-	local pipeline = Prometheus.Pipeline:fromConfig(config)
+	local pipeline = Fengetheus.Pipeline:fromConfig(config)
 	local out = pipeline:apply(source, sourceFile)
-	Prometheus.Logger:info(string.format('Writing output to "%s"', outFile))
+	Fengetheus.Logger:info(string.format('Writing output to "%s"', outFile))
 
 	-- Write Output
 	local handle = io.open(outFile, "w")
@@ -294,6 +294,6 @@ local ok, err = xpcall(run_cli, function(e)
 end)
 if not ok then
 	local message = tostring(err):gsub("^.-:%d+:%s*", "")
-	io.stderr:write(Prometheus.colors(Prometheus.Config.NameUpper .. ": " .. message, "red") .. "\n")
+	io.stderr:write(Fengetheus.colors(Fengetheus.Config.NameUpper .. ": " .. message, "red") .. "\n")
 	os.exit(1)
 end

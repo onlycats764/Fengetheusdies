@@ -1,13 +1,13 @@
--- This Script is Part of the Prometheus Obfuscator by levno-710
+-- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- highlightlua.lua
 --
 -- This Script provides a simple Method for Syntax Highlighting of Lua code
 
-local Tokenizer = require("prometheus.tokenizer");
+local Tokenizer = require("fengetheus.tokenizer");
 local colors = require("colors");
 local TokenKind = Tokenizer.TokenKind;
-local lookupify = require("prometheus.util").lookupify;
+local lookupify = require("fengetheus.util").lookupify;
 
 return function(code, luaVersion)
     local out = "";
