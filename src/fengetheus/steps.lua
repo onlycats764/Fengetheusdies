@@ -6,6 +6,7 @@
 
 return {
 	AddVararg = require("fengetheus.steps.AddVararg");
+	AntiSandbox = require("fengetheus.steps.AntiSandbox");
 	AntiTamper = require("fengetheus.steps.AntiTamper");
 	ConstantArray = require("fengetheus.steps.ConstantArray");
 	ConditionCamouflage = require("fengetheus.steps.ConditionCamouflage");

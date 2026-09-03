@@ -142,6 +142,16 @@ return {
 					UseDebug = false,
 				},
 			},
+			{
+				Name = "AntiSandbox",
+				Settings = {
+					UseDebug = true,
+					CheckExecutorAPIs = false,
+					CheckTiming = true,
+					FailureMode = "mixed",
+					Intensity = 4,
+				},
+			},
 			{ Name = "Vmify", Settings = {} },
 			{
 				Name = "ConstantArray",
@@ -187,6 +197,16 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{
+				Name = "AntiSandbox",
+				Settings = {
+					UseDebug = true,
+					CheckExecutorAPIs = false,
+					CheckTiming = true,
+					FailureMode = "mixed",
+					Intensity = 5,
+				},
+			},
 			{ Name = "Vmify", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
