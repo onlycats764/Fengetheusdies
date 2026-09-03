@@ -614,7 +614,7 @@ function AntiTamper:apply(ast, pipeline)
         local ok, e = pcall(fn);
         check(not ok);
         check(type(e) == "string" and
-              string.find(normalizeError(e), expectedSubstring, 1, true) ~= nil);
+              string.find(normalizeError(e), normalizeError(expectedSubstring), 1, true) ~= nil);
     end
     expectError(function() return getmetatable(); end, "argument #1");
     expectError(function() return setmetatable(); end,
@@ -656,17 +656,26 @@ function AntiTamper:apply(ast, pipeline)
     end
 
     -- getfenv/setfenv round-trip (Luraph checks 1-4). Lua 5.1/Luau only.
+    -- The test function is created via loadstring (not a literal Lua closure)
+    -- so that it is a *native* Lua function whose global lookups go through
+    -- the function environment that setfenv modifies. When AntiTamper runs
+    -- inside Vmify, literal closures become VM-compiled functions that
+    -- resolve globals through the VM's own upvalue chain, bypassing setfenv
+    -- and making the v1()==v2 check spuriously fail.
     if type(getfenv) == "function" then
-        local function v1() return v; end
-        local ok, env = pcall(getfenv, v1);
-        check(ok and type(env) == "table");
-        if type(setfenv) == "function" then
-            local v2 = {};
-            local t15 = setmetatable({ v = v2 }, { __index = env });
-            local ok2, v21 = pcall(setfenv, v1, t15);
-            check(ok2 and v21 == v1);
-            check(v1() == v2);
-            check(pcall(setfenv, v1, env));
+        local v1LoadOk, v1 = pcall(loadstring, "return v", "FengetheusAT_getfenv");
+        check(v1LoadOk and type(v1) == "function");
+        if v1LoadOk and type(v1) == "function" then
+            local ok, env = pcall(getfenv, v1);
+            check(ok and type(env) == "table");
+            if type(setfenv) == "function" then
+                local v2 = {};
+                local t15 = setmetatable({ v = v2 }, { __index = env });
+                local ok2, v21 = pcall(setfenv, v1, t15);
+                check(ok2 and v21 == v1);
+                check(v1() == v2);
+                check(pcall(setfenv, v1, env));
+            end
         end
     end
 
