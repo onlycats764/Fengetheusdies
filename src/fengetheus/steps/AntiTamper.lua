@@ -34,6 +34,14 @@
 --       do the expected library members still exist?) — these are the signals
 --       that actually catch hooking/tampering without false-positiving on
 --       engine version drift.
+--     * checkCClosure uses iscclosure as the *authoritative* C-closure test and
+--       only falls back to debug.info source / debug.getinfo().what when
+--       iscclosure/islclosure are unavailable (plain Lua 5.1). Real Roblox
+--       executors expose some builtins (e.g. loadstring) by injecting them from
+--       Roblox scripts, so debug.info(fn,"s") returns a Roblox script path
+--       instead of "[C]"; treating that non-"[C]" source as tampering
+--       false-positived on every such executor. iscclosure correctly reports
+--       those injected builtins as C closures, so it must take precedence.
 --   The original sanity-check loop is retained (it is self-consistent and only
 --   depends on math.random, which the obfuscator patches), and the anti-beautify
 --   sethook block is retained when UseDebug is enabled.
@@ -275,8 +283,36 @@ function AntiTamper:apply(ast, pipeline)
     -- Lua closure (the classic hooking vector). Tolerant: only flags when we
     -- can actually determine the closure is a Lua closure; missing APIs or
     -- unexpected shapes do not false-positive.
+    --
+    -- IMPORTANT: iscclosure is the authoritative signal. Real Roblox executors
+    -- implement some builtins (e.g. loadstring) by injecting them from Roblox
+    -- scripts, so debug.info(fn, "s") returns a Roblox script path (e.g.
+    -- "CoreGui.RobloxGui.Modules.Common.Locales.en-us") instead of "[C]". That
+    -- is still a genuine C closure (iscclosure returns true), so it must NOT be
+    -- flagged as tampered. The old logic checked source first and returned
+    -- false before ever consulting iscclosure, which false-positived on every
+    -- executor that injects loadstring this way -> "Tamper Detected!" on a
+    -- completely unmodified script. Now iscclosure is checked first; the
+    -- source/getinfo fallback is only used when iscclosure/islclosure are
+    -- unavailable (plain Lua 5.1 runtime).
     local function checkCClosure(fn)
         safeCheck(function()
+            -- Authoritative path (Luau / Roblox executors): iscclosure is the
+            -- real "is this a native C closure?" test, independent of how the
+            -- executor chose to expose the function's debug source.
+            if type(refs.iscclosure) == "function" and type(refs.islclosure) == "function" then
+                if refs.iscclosure(fn) == false and refs.islclosure(fn) == true then
+                    return false;
+                end
+                -- iscclosure(fn) == true => genuine C closure, not tampered,
+                -- regardless of what debug.info reports as the source.
+                return true;
+            end
+            -- Fallback path (plain Lua 5.1 without iscclosure): use debug
+            -- source / getinfo().what. Only flag when we can positively
+            -- determine the closure is a Lua closure (what == "Lua" / source
+            -- is a real script path that is not "[C]"). A nil source is
+            -- inconclusive and must not false-positive.
             if type(refs.debugInfo) == "function" then
                 local source = refs.debugInfo(fn, "s");
                 if source ~= nil and source ~= "[C]" then
@@ -285,11 +321,6 @@ function AntiTamper:apply(ast, pipeline)
             elseif type(refs.debugGetInfo) == "function" then
                 local info = refs.debugGetInfo(fn);
                 if info and info.what ~= nil and info.what ~= "C" and info.what ~= "J" then
-                    return false;
-                end
-            end
-            if type(refs.iscclosure) == "function" and type(refs.islclosure) == "function" then
-                if refs.iscclosure(fn) == false and refs.islclosure(fn) == true then
                     return false;
                 end
             end
