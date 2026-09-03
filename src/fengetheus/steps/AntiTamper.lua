@@ -15,16 +15,22 @@
 --   would false-positive on a completely unmodified script and trigger the
 --   `while true do end` hard halt — hanging the script forever in a real
 --   Roblox executor. That made every preset containing AntiTamper unusable.
+--   (Note: the current `detected()` *does* intentionally use the
+--   `while true do end` hard halt — but only on a *genuinely tampered*
+--   script, where wedging the attacker's dump/hook bot is the desired
+--   behaviour. The false-positives that made the old version unusable came
+--   from the removed hardcoded-value assertions, not from the halt itself.)
 --
 --   This rewrite keeps the *effective* anti-tamper signals — builtin snapshot
 --   + final equality check (detects post-snapshot global replacement), C-closure
 --   verification (detects Lua-closure hooks of native builtins), and library
 --   member existence checks (detects deleted/swapped members) — but makes every
 --   check tolerant of runtime differences:
---     * `detected()` raises an error instead of spinning `while true do end`,
---       so a tampered script *stops* instead of *hanging*. A stopped script is
---       still broken from the attacker's perspective, but a legitimate user on
---       a slightly different engine build is never wedged forever.
+--     * `detected()` spins a `while true do end` hard halt instead of raising
+--       a catchable error, so a tampered script (and any dump/hook bot
+--       driving it) is wedged forever. The loop is unreachable on a
+--       legitimate, unmodified script, so a real user on any engine build is
+--       never affected.
 --     * Every individual check is wrapped so that an unexpected error inside the
 --       check (not just a falsy return) is caught and treated as "not tampered"
 --       rather than crashing or hanging the whole payload.
@@ -209,9 +215,11 @@ function AntiTamper:apply(ast, pipeline)
     -- Each Roblox/Luau-only branch is guarded so plain Lua 5.1 skips it.
     --
     -- KEY DIFFERENCE from the old Luraph-derived layer: a failed check sets
-    -- `valid = false` and, at the very end, *errors out* instead of spinning
-    -- `while true do end`. This means a tampered script is broken (it errors)
-    -- but a legitimate script on any engine build / executor never hangs.
+    -- `valid = false` and, at the very end, *spins forever* in a
+    -- `while true do end` loop. This means a tampered script (and any dump
+    -- bot driving it) is wedged forever instead of raising a catchable error
+    -- an attacker could pcall around. The loop is unreachable on a
+    -- legitimate, unmodified script, so real users are never affected.
     -- No check asserts a hardcoded runtime value (RNG output, exact error
     -- text, etc.) — only structural integrity signals that genuinely detect
     -- hooking/tampering are kept, so the layer cannot false-positive on
@@ -219,11 +227,13 @@ function AntiTamper:apply(ast, pipeline)
     -- ========================================================================
     local gmatch = string.gmatch;
 
-    -- Hard halt: raise an error so the script stops instead of hanging in a
-    -- `while true do end`. A stopped script is still broken from the
-    -- attacker's POV; a legitimate user is never wedged forever.
+    -- Hard halt: spin in an infinite `while true do end` loop. This wedges
+    -- the script (and any dump/scraper bot driving it) forever instead of
+    -- raising a catchable error that an attacker could simply pcall around.
+    -- A bot that tries to dump/hook the payload gets trapped in the loop and
+    -- never reaches the protected code below.
     local function detected()
-        error("Tamper Detected!", 0);
+        while true do end;
     end
 
     -- check(value): on a falsy value, flag invalid and stop. Wrapped in
@@ -537,7 +547,10 @@ function AntiTamper:apply(ast, pipeline)
     end
     valid = valid and acc1 == acc2;
 
-    -- Final halt: if any check failed, error out (do NOT hang).
+    -- Final halt: if any check failed, spin forever (do NOT raise a
+    -- catchable error). A dump/hook bot gets trapped in the loop and never
+    -- reaches the protected payload below; a legitimate unmodified script
+    -- never reaches this branch.
     if not valid then
         detected();
     end
@@ -545,13 +558,13 @@ end
 
     -- Anti Function Arg Hook
     local obj = setmetatable({}, {
-        __tostring = function() error("Tamper Detected!", 0); end,
+        __tostring = function() while true do end; end,
     });
     obj[math.random(1, 100)] = obj;
     (function() end)(obj);
 
     if not valid then
-        error("Tamper Detected!", 0);
+        while true do end;
     end
     ]]
 
