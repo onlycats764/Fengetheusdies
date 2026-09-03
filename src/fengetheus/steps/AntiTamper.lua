@@ -515,9 +515,19 @@ function AntiTamper:apply(ast, pipeline)
     local n = random(3, 65);
     local acc1 = 0;
     local acc2 = 0;
+    -- NOTE: the original Luraph-derived block compared the line number parsed
+    -- out of TWO DIFFERENT error-generating snippets (`line == line2`). Those
+    -- two snippets are emitted at different physical positions in the output,
+    -- so their reported line numbers are different by construction -> the
+    -- comparison was ALWAYS false -> `valid` was forced false -> guaranteed
+    -- "Tamper Detected!" on every script, on every runtime (Lumora and real
+    -- executors alike). That line-number cross-check has been removed; it was
+    -- a false-positive factory, not a real tamper signal. The rest of the loop
+    -- (the pcall success/error assertions and the acc1==acc2 accumulator
+    -- check) is structural, self-consistent, and genuinely verifies pcall +
+    -- error + unpack behaviour, so it is retained.
     local pcallRet = {pcall(function() local a = ]] .. tostring(math.random(1, 2^24)) .. [[ - "]] .. RandomStrings.randomString() .. [[" ^ ]] .. tostring(math.random(1, 2^24)) .. [[ return "]] .. RandomStrings.randomString() .. [[" / a; end)};
     local origMsg = pcallRet[2];
-    local line = tonumber(gmatch(tostring(origMsg), ':(%d*):')());
     for i = 1, n do
         local len = math.random(1, 100);
         local n2 = random(0, 255);
@@ -525,10 +535,6 @@ function AntiTamper:apply(ast, pipeline)
         local shouldErr = random(1, 2) == 1;
         local msg = origMsg:gsub(':(%d*):', ':' .. tostring(random(0, 10000)) .. ':');
         local arr = {pcall(function()
-            if random(1, 2) == 1 or i == n then
-                local line2 = tonumber(gmatch(tostring(({pcall(function() local a = ]] .. tostring(math.random(1, 2^24)) .. [[ - "]] .. RandomStrings.randomString() .. [[" ^ ]] .. tostring(math.random(1, 2^24)) .. [[ return "]] .. RandomStrings.randomString() .. [[" / a; end)})[2]), ':(%d*):')());
-                valid = valid and line == line2;
-            end
             if shouldErr then
                 error(msg, 0);
             end
