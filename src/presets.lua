@@ -63,6 +63,7 @@ return {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "ConstantArray",
@@ -94,6 +95,7 @@ return {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "Vmify", Settings = {} },
 			{
 				Name = "ConstantArray",
@@ -124,6 +126,7 @@ return {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "Vmify", Settings = {} },
 		},
 	},
@@ -144,6 +147,7 @@ return {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
 				{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
@@ -222,6 +226,7 @@ return {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
 			{
 				Name = "AntiSandbox",
 				Settings = {
@@ -299,6 +304,7 @@ return {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "AntiTamper",

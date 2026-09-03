@@ -14,6 +14,7 @@ return {
 	RedundantOperationElimination = require("fengetheus.steps.RedundantOperationElimination");
 	ConditionCamouflage = require("fengetheus.steps.ConditionCamouflage");
 	EncryptStrings = require("fengetheus.steps.EncryptStrings");
+	ExtractGlobals = require("fengetheus.steps.ExtractGlobals");
 	LocalCaching = require("fengetheus.steps.LocalCaching");
 	NumbersToExpressions = require("fengetheus.steps.NumbersToExpressions");
 	ProxifyLocals = require("fengetheus.steps.ProxifyLocals");
