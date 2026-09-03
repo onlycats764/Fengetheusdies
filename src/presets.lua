@@ -155,7 +155,7 @@ return {
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
-				{ Name = "EncryptStrings", Settings = {} },
+			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
 				Settings = {
