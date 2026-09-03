@@ -32,7 +32,12 @@ return {
 		NameGenerator = "MangledShuffled",
 		PrettyPrint = false,
 		Seed = 0,
-		Steps = {},
+		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
+		},
 	},
 
 
@@ -54,6 +59,10 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "ConstantArray",
@@ -81,6 +90,10 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "Vmify", Settings = {} },
 			{
 				Name = "ConstantArray",
@@ -107,6 +120,10 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "Vmify", Settings = {} },
 		},
 	},
@@ -123,6 +140,10 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
 				{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
@@ -197,6 +218,10 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
 			{
 				Name = "AntiSandbox",
 				Settings = {
@@ -270,6 +295,10 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "AntiTamper",

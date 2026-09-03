@@ -10,6 +10,8 @@ return {
 	AntiTamper = require("fengetheus.steps.AntiTamper");
 	ConstantArray = require("fengetheus.steps.ConstantArray");
 	ConstantFolding = require("fengetheus.steps.ConstantFolding");
+	DeadCodeElimination = require("fengetheus.steps.DeadCodeElimination");
+	RedundantOperationElimination = require("fengetheus.steps.RedundantOperationElimination");
 	ConditionCamouflage = require("fengetheus.steps.ConditionCamouflage");
 	EncryptStrings = require("fengetheus.steps.EncryptStrings");
 	LocalCaching = require("fengetheus.steps.LocalCaching");
