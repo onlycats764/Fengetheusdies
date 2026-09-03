@@ -1,9 +1,7 @@
 
--- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- namegenerators.lua
 --
--- This Script provides a collection of name generators for Fengetheus.
 
 return {
 	Mangled = require("fengetheus.namegenerators.mangled");

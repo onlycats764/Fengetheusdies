@@ -1,4 +1,3 @@
--- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- pass_self_function_call.lua
 --

@@ -1,5 +1,4 @@
 
--- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- compile_core.lua
 -- This Script contains the core compilation functions: compileTopNode, compileFunction, compileBlock,

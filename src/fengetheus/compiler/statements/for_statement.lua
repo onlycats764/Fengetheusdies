@@ -1,5 +1,4 @@
 
--- This Script is Part of the Fengetheus Obfuscator (Prometheus fork) by levno-710
 --
 -- for_statement.lua
 --
