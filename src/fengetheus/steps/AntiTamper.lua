@@ -2,28 +2,41 @@
 --
 -- AntiTamper.lua
 --
--- This Script provides an Obfuscation Step, that breaks the script, when someone tries to tamper with it.
+-- This Script provides an Obfuscation Step, that breaks the script, when someone
+-- tries to tamper with it.
 --
--- The generated payload borrows heavily from the leaked Luraph 14.7 anti-tamper
--- module (discord.gg/syncrypt), adapted to Fengetheus' code-generation pipeline.
--- Ported techniques (see docs/luraph-antitamper-analysis.md):
---   * The `refs` snapshot of every native builtin followed by a final equality
---     check, so a global hook on e.g. pcall is detected even if it was applied
---     after the snapshot was taken.
---   * `checkError` / `normalizeError` to validate the exact error message of
---     builtins called with invalid arguments, defeating function replaces that
---     alter error text.
---   * `debug.info`-based verification that builtins are real C closures
---     (source == "[C]", line == -1, iscclosure == true, islclosure == false).
---   * Library member integrity checks on string/math/table/coroutine/debug,
---     detecting deleted or swapped members (replaces by Lua closures are
---     caught by the C-closure check above).
---   * Roblox/Luau-runtime checks (Instance metatable lock, Enum, Random.new
---     determinism, buffer round-trip, task thread results) that only run when
---     the relevant globals exist, so the step still loads on plain Lua 5.1.
--- The original Fengetheus sanity-check loop, anti-beautify sethook block and
--- traceback line-number validation are retained and now feed into the same
--- `valid` flag, preserving preset behaviour while adding the Luraph layers.
+-- DESIGN PHILOSOPHY (robust, non-hanging):
+--   The previous version of this step ported many checks from the leaked Luraph
+--   14.7 anti-tamper module. Several of those checks asserted exact, hardcoded
+--   runtime values (Random.new seed determinism, exact error-message text,
+--   debug.info return shapes, getfenv/setfenv round-trips through loadstring,
+--   Roblox Instance/Enum/buffer/task surface details). Those exact values drift
+--   between Roblox engine versions and between different executors, so a check
+--   would false-positive on a completely unmodified script and trigger the
+--   `while true do end` hard halt — hanging the script forever in a real
+--   Roblox executor. That made every preset containing AntiTamper unusable.
+--
+--   This rewrite keeps the *effective* anti-tamper signals — builtin snapshot
+--   + final equality check (detects post-snapshot global replacement), C-closure
+--   verification (detects Lua-closure hooks of native builtins), and library
+--   member existence checks (detects deleted/swapped members) — but makes every
+--   check tolerant of runtime differences:
+--     * `detected()` raises an error instead of spinning `while true do end`,
+--       so a tampered script *stops* instead of *hanging*. A stopped script is
+--       still broken from the attacker's perspective, but a legitimate user on
+--       a slightly different engine build is never wedged forever.
+--     * Every individual check is wrapped so that an unexpected error inside the
+--       check (not just a falsy return) is caught and treated as "not tampered"
+--       rather than crashing or hanging the whole payload.
+--     * Hardcoded-value assertions (Random seed, exact error text, etc.) are
+--       removed. The remaining assertions are all *structural* (does this
+--       builtin still equal the one we snapshotted? is it still a C closure?
+--       do the expected library members still exist?) — these are the signals
+--       that actually catch hooking/tampering without false-positiving on
+--       engine version drift.
+--   The original sanity-check loop is retained (it is self-consistent and only
+--   depends on math.random, which the obfuscator patches), and the anti-beautify
+--   sethook block is retained when UseDebug is enabled.
 
 local Step = require("fengetheus.step")
 local RandomStrings = require("fengetheus.randomStrings")
@@ -63,7 +76,7 @@ local function generateSanityCheck()
 		local index = math.min(idx - 1, sanityPasses)
 		addCode("            if valid == %s then\n", tostring(sanityCheckAnswers[index]))
 		addCode("            else\n")
-		addCode("                while true do end\n")
+		addCode("                valid = false;\n")
 		addCode("            end\n")
 	end
 
@@ -73,7 +86,7 @@ local function generateSanityCheck()
 		if i == 0 then
 			addCode("        if i == 0 then\n")
 			addCode("            if valid ~= '%s' then\n", primaryCheck)
-			addCode("                while true do end\n")
+			addCode("                valid = false;\n")
 			addCode("            end\n")
 			addCode("            valid = %s;\n", tostring(sanityCheckAnswers[1]))
 		elseif i == 1 then
@@ -142,21 +155,6 @@ function AntiTamper:apply(ast, pipeline)
             -- Anti Function Hook
             local funcs = {pcall, string.char, debug.getinfo, string.dump}
             for i = 1, #funcs do
-                -- Real Lua marks a native (non-Lua-closure) function's
-                -- debug.getinfo(...).what as "C". Fengari's own builtins are
-                -- implemented in JavaScript, not C, so Fengari legitimately
-                -- reports "J" instead for the exact same kind of function
-                -- (see funcinfo() in Fengari's ldebug.js - this is intentional
-                -- upstream Fengari behavior, not a bug). Checking only for
-                -- "C" means this sanity check fails for every unmodified
-                -- script the moment it runs under Fengari, since none of
-                -- pcall/string.char/debug.getinfo/string.dump will ever
-                -- report "C" there - AntiTamper would flag *all* Fengari
-                -- executions as tampered and deliberately break them via
-                -- Tamper Detected!/the infinite-loop fallback below, with no
-                -- actual tampering having occurred. Both markers mean the
-                -- same thing (an unhookable native builtin), so both must be
-                -- accepted.
                 local what = debug.getinfo(funcs[i]).what
                 if what ~= "C" and what ~= "J" then
                     valid = false;
@@ -193,20 +191,51 @@ function AntiTamper:apply(ast, pipeline)
 	code = code
 		.. [[
     -- ========================================================================
-    -- Luraph-derived anti-hookup layer (ported from the leaked 14.7 module).
+    -- Robust anti-hookup layer.
     -- All of the following is Lua 5.1 *syntax* (no +=/continue/::) so the
     -- internal Lua51 parser accepts it, while freely calling Luau runtime
     -- APIs (debug.info, iscclosure, buffer, task, Random, Instance, Enum).
     -- Each Roblox/Luau-only branch is guarded so plain Lua 5.1 skips it.
+    --
+    -- KEY DIFFERENCE from the old Luraph-derived layer: a failed check sets
+    -- `valid = false` and, at the very end, *errors out* instead of spinning
+    -- `while true do end`. This means a tampered script is broken (it errors)
+    -- but a legitimate script on any engine build / executor never hangs.
+    -- No check asserts a hardcoded runtime value (RNG output, exact error
+    -- text, etc.) — only structural integrity signals that genuinely detect
+    -- hooking/tampering are kept, so the layer cannot false-positive on
+    -- engine version drift.
     -- ========================================================================
     local gmatch = string.gmatch;
-    local err = function() error("Tamper Detected!") end;
 
-    -- Luraph-style hard halt: instead of only flipping `valid`, also wedge the
-    -- thread in a bare `while true do end` so a tampered script cannot limp
-    -- forward past the check even if a later branch forgets to consult valid.
+    -- Hard halt: raise an error so the script stops instead of hanging in a
+    -- `while true do end`. A stopped script is still broken from the
+    -- attacker's POV; a legitimate user is never wedged forever.
     local function detected()
-        while true do end
+        error("Tamper Detected!", 0);
+    end
+
+    -- check(value): on a falsy value, flag invalid and stop. Wrapped in
+    -- pcall by the caller where appropriate so an unexpected error inside a
+    -- check does not crash the payload.
+    local function check(value)
+        if not value then
+            valid = false;
+            detected();
+        end
+    end
+
+    -- Safe check: runs a check function inside pcall so that if the check
+    -- itself errors (e.g. an API that doesn't exist on this engine), we
+    -- treat it as "could not verify, do not false-positive" rather than
+    -- crashing or hanging. Only an explicit `false` return from the check
+    -- function counts as a tamper signal.
+    local function safeCheck(fn)
+        local ok, result = pcall(fn);
+        if ok and result == false then
+            valid = false;
+            detected();
+        end
     end
 
     -- Snapshot every builtin we will rely on. A global replace of e.g. pcall
@@ -222,8 +251,7 @@ function AntiTamper:apply(ast, pipeline)
         stringSub = string.sub, stringFind = string.find,
         stringGsub = string.gsub, stringFormat = string.format,
         stringLen = string.len, stringRep = string.rep,
-        stringReverse = string.reverse, stringPack = string.pack,
-        stringUnpack = string.unpack,
+        stringReverse = string.reverse,
         tableInsert = table.insert, tableRemove = table.remove,
         tableConcat = table.concat, tableSort = table.sort,
         mathFloor = math.floor, mathAbs = math.abs,
@@ -242,344 +270,129 @@ function AntiTamper:apply(ast, pipeline)
         getfenv = getfenv, setfenv = setfenv,
     };
 
-    local function normalizeError(value)
-        if type(value) ~= "string" then
-            return value;
-        end
-        return (string.gsub(value, " to '[^']+'", ""));
-    end
-
-    local function check(value)
-        if not value then
-            valid = false;
-            detected();
-        end
-    end
-
-    local function checkError(ok, actual, expected)
-        check(ok == false);
-        check(normalizeError(actual) == normalizeError(expected));
-    end
-
-    local function checkErrorSuffix(ok, actual, expected)
-        check(ok == false);
-        local actualText = normalizeError(actual);
-        local expectedText = normalizeError(expected);
-        check(type(actualText) == "string" and
-            string.sub(actualText, -#expectedText) == expectedText);
-    end
-
     -- C-closure verification (Luau: debug.info + iscclosure; Lua 5.1 fallback:
     -- debug.getinfo().what). Detects replaces that swap a native builtin for a
-    -- Lua closure (the classic hooking vector).
-    local function checkCClosure(fn, label)
-        if type(refs.debugInfo) == "function" then
-            local source, line, fnName, params, variadic, selfRef =
-                refs.debugInfo(fn, "slnaf");
-            check(source == "[C]");
-            check(line == -1);
-            check(params == 0);
-            check(variadic == true);
-            check(selfRef == fn);
-        elseif type(refs.debugGetInfo) == "function" then
-            local info = refs.debugGetInfo(fn);
-            check(info and (info.what == "C" or info.what == "J"));
-        end
-        if type(refs.iscclosure) == "function" then
-            check(refs.iscclosure(fn) == true);
-        end
-        if type(refs.islclosure) == "function" then
-            check(refs.islclosure(fn) == false);
-        end
+    -- Lua closure (the classic hooking vector). Tolerant: only flags when we
+    -- can actually determine the closure is a Lua closure; missing APIs or
+    -- unexpected shapes do not false-positive.
+    local function checkCClosure(fn)
+        safeCheck(function()
+            if type(refs.debugInfo) == "function" then
+                local source = refs.debugInfo(fn, "s");
+                if source ~= nil and source ~= "[C]" then
+                    return false;
+                end
+            elseif type(refs.debugGetInfo) == "function" then
+                local info = refs.debugGetInfo(fn);
+                if info and info.what ~= nil and info.what ~= "C" and info.what ~= "J" then
+                    return false;
+                end
+            end
+            if type(refs.iscclosure) == "function" and type(refs.islclosure) == "function" then
+                if refs.iscclosure(fn) == false and refs.islclosure(fn) == true then
+                    return false;
+                end
+            end
+            return true;
+        end);
     end
 
-    -- varargs + select counting (Luraph checks 7/8)
-    local function f1(...)
-        return refs.select("#", ...), ...
-    end
-    local count, first, second, third = f1("head", nil, "tail");
-    check(count == 3 and first == "head" and second == nil and third == "tail");
-
-    -- closures sharing upvalues (Luraph check 9)
-    local closures = {};
-    for i = 1, 3 do
-        local captured = i;
-        closures[i] = function(increment)
-            captured = captured + increment;
-            return captured;
+    -- varargs + select counting — structural, self-consistent.
+    safeCheck(function()
+        local function f1(...)
+            return refs.select("#", ...), ...
         end
-    end
-    check(closures[1](4) == 5 and closures[1](2) == 7 and
-          closures[2](3) == 5 and closures[3](1) == 4);
-
-    -- metatables + metamethods (Luraph checks 10-14)
-    local writes = {};
-    local metatable = {
-        __index = function(_, key) return "index:" .. tostring(key); end,
-        __newindex = function(_, key, value) writes[key] = value; end,
-        __add = function(l, r) return rawget(l, "value") + rawget(r, "value"); end,
-        __tostring = function() return "object"; end,
-    };
-    local left = setmetatable({ value = 13 }, metatable);
-    local right = setmetatable({ value = 7 }, metatable);
-    check(left.missing == "index:missing");
-    left.recorded = 41;
-    check(writes.recorded == 41);
-    check(left + right == 20);
-    check(tostring(left) == "object" and getmetatable(left) == metatable);
-    rawset(left, "raw", 53);
-    check(rawget(left, "raw") == 53 and rawequal(left, left) and not rawequal(left, right));
-
-    -- table operations (Luraph checks 15-21)
-    local values = { 4, 1, 3 };
-    table.insert(values, 2, 2);
-    check(table.concat(values, ",") == "4,2,1,3");
-    check(table.remove(values, 1) == 4);
-    table.sort(values);
-    check(table.concat(values, ",") == "1,2,3");
-
-    -- string operations (Luraph checks 22-26)
-    local binary = "A\0z";
-    check(string.byte(binary, 1) == 65 and string.byte(binary, 2) == 0 and
-          string.byte(binary, 3) == 122);
-    check(string.char(65, 0, 122) == binary);
-    check(string.sub("abcdef", 2, -2) == "bcde");
-    check(string.reverse("abc\0") == "\0cba");
-    check(string.rep("xy", 3) == "xyxyxy" and #"a\0b" == 3 and
-          string.format("%02x:%s", 15, "ok") == "0f:ok");
-
-    -- math + bit32 (Luraph checks 27-30)
-    check(tonumber("ff", 16) == 255 and math.floor(-1.25) == -2 and
-          math.abs(-17) == 17 and math.min(9, 3, 7) == 3 and math.max(9, 3, 7) == 9);
-    local nan = 0 / 0;
-    check(math.huge > 1e308 and nan ~= nan and (-17 % 5) == 3);
-    if type(bit32) == "table" then
-        check(bit32.bxor(0x55AA55AA, 0x0F0F0F0F) == 0x5AA55AA5 and
-              bit32.band(0x12345678, 0x00FF00FF) == 0x00340078 and
-              bit32.bor(0x12003478, 0x00345600) == 0x12347678 and
-              bit32.lrotate(0x12345678, 8) == 0x34567812 and
-              bit32.rshift(0x80000000, 31) == 1);
-    end
-
-    -- coroutine lifecycle (Luraph checks 31-33)
-    local thread = coroutine.create(function(value)
-        local resumed = coroutine.yield(value + 1);
-        return resumed + 2;
+        local count, first, second, third = f1("head", nil, "tail");
+        return count == 3 and first == "head" and second == nil and third == "tail";
     end);
-    check(coroutine.status(thread) == "suspended");
-    local resumed, yielded = coroutine.resume(thread, 9);
-    check(resumed and yielded == 10 and coroutine.status(thread) == "suspended");
-    local completed, result = coroutine.resume(thread, 11);
-    check(completed and result == 13 and coroutine.status(thread) == "dead");
 
-    -- loadstring (Luraph checks 34-36)
-    local compiledOk, compiled = pcall(loadstring, "return 19, nil, 23", "Fengetheus");
-    check(compiledOk and type(compiled) == "function");
-    local a, b, c = compiled();
-    check(a == 19 and b == nil and c == 23);
-    local ok3, v8, err3 = pcall(loadstring, "local =", "Fengetheus2");
-    check(ok3 and v8 == nil and type(err3) == "string");
-
-    -- error/xpcall level 0 propagation (Luraph checks 5-6)
-    local s1 = "test";
-    local ok1, s2 = pcall(function() error(s1, 0); end);
-    check(not ok1 and type(s2) == "string" and string.find(s2, s1, 1, true) ~= nil);
-    local handled, s4 = xpcall(function() error(s1, 0); end, function(message)
-        return "handled:" .. tostring(message);
-    end);
-    check(not handled and type(s4) == "string" and
-          string.find(s4, "handled:", 1, true) == 1 and
-          string.find(s4, s1, 1, true) ~= nil);
-
-    -- executor functions, only if present (Luraph checks 39-45)
-    if type(refs.islclosure) == "function" then
-        local f4 = function(value) return value; end;
-        check(refs.islclosure(f4) == true);
-    end
-    if type(refs.iscclosure) == "function" then
-        local f4 = function(value) return value; end;
-        check(refs.iscclosure(f4) == false);
-    end
-    if type(refs.newcclosure) == "function" and type(refs.iscclosure) == "function" then
-        local f4 = function(value) return value; end;
-        local wrapped = refs.newcclosure(f4);
-        check(type(wrapped) == "function" and wrapped(31) == 31);
-        check(refs.iscclosure(wrapped) == true);
-    end
-    if type(refs.clonefunction) == "function" then
-        local cloned = refs.clonefunction(pcall);
-        local cloneOk, cloneValue = cloned(function() return 37; end);
-        check(type(cloned) == "function" and cloneOk and cloneValue == 37);
-    end
-    if type(refs.isfunctionhooked) == "function" then
-        for _, fn in ipairs({ refs.assert, refs.error, refs.pcall,
-                              refs.stringByte, refs.tableInsert }) do
-            check(refs.isfunctionhooked(fn) == false);
-        end
-    end
-    if type(refs.checkcaller) == "function" then
-        check(type(refs.checkcaller()) == "boolean");
-    end
-
-    -- C-closure verification of every builtin we snapshotted (Luraph n0-n8).
-    for _, fn in ipairs({
-        refs.assert, refs.error, refs.getmetatable, refs.next, refs.pairs,
-        refs.pcall, refs.rawequal, refs.rawget, refs.rawset, refs.select,
-        refs.setmetatable, refs.tonumber, refs.tostring, refs.type, refs.xpcall,
-        refs.stringByte, refs.stringChar, refs.stringSub, refs.stringFind,
-        refs.stringGsub, refs.stringFormat, refs.stringLen, refs.stringRep,
-        refs.stringReverse, refs.tableInsert, refs.tableRemove, refs.tableConcat,
-        refs.tableSort, refs.mathFloor, refs.mathAbs, refs.mathMin, refs.mathMax,
-        refs.coroutineCreate, refs.coroutineResume, refs.coroutineYield,
-        refs.coroutineStatus, refs.coroutineClose, refs.coroutineWrap,
-        refs.loadstring,
-    }) do
-        checkCClosure(fn, "builtin");
-    end
-
-    -- Roblox Instance metatable lock + services (Luraph checks 46-47 + Instance).
-    -- Only runs when the Roblox globals exist, so plain Lua 5.1 is unaffected.
-    if type(game) == "userdata" and typeof and typeof(game) == "Instance" then
-        check(game.ClassName == "DataModel");
-        local service = game:GetService("RunService");
-        check(typeof(service) == "Instance" and service.ClassName == "RunService");
-        local folderParent = Instance.new("Folder");
-        local folderChild = Instance.new("Folder", folderParent);
-        for _, object in ipairs({
-            { value = game, class = "DataModel" },
-            { value = workspace, class = "Workspace" },
-            { value = folderParent, class = "Folder" },
-            { value = folderChild, class = "Folder" },
-        }) do
-            local obj = object.value;
-            check(type(obj) == "userdata" and typeof(obj) == "Instance");
-            check(obj.ClassName == object.class);
-            check(getmetatable(obj) == "The metatable is locked");
-            check(type(obj.AttributeChanged) ~= "nil");
-            check(type(obj.ChildRemoved) ~= "nil");
-            local connection = obj.ChildRemoved:Connect(function() end);
-            check(connection.Connected == true);
-            local dotOk, dotErr = pcall(folderParent.GetChildren, nil);
-            checkError(dotOk, dotErr,
-                "Expected ':' not '.' calling member function GetChildren");
-            connection:Disconnect();
-            check(connection.Connected == false);
-        end
-        check(#folderParent:GetChildren() == 1);
-        folderParent:Destroy();
-        folderChild:Destroy();
-
-        -- Enum metatable lock + FromName/FromValue identity (Luraph Enum block).
-        if type(Enum) == "userdata" then
-            check(typeof(Enum) == "Enums");
-            check(getmetatable(Enum) == "The metatable is locked");
-            local enumType = Enum.HumanoidRigType;
-            local enumItem = enumType.R6;
-            check(typeof(enumType) == "Enum" and typeof(enumItem) == "EnumItem");
-            check(getmetatable(enumType) == "The metatable is locked");
-            check(getmetatable(enumItem) == "The metatable is locked");
-            local byName1 = enumType:FromName("R6");
-            local byName2 = enumType:FromName("R6");
-            local byValue1 = enumType:FromValue(0);
-            check(byName1 == byName2 and byName1 == byValue1 and
-                  enumType.R6 == byName1);
-            check(byName1.Name == "R6" and byName1.Value == 0 and
-                  byName1.EnumType == enumType);
-        end
-
-        -- Random.new determinism (Luraph Random block, seed 177465824).
-        if type(Random) == "table" or type(Random) == "userdata" then
-            local rng = Random.new(177465824);
-            local r1 = rng:NextNumber();
-            local r2 = rng:NextInteger(189, 1164);
-            local r3 = rng:NextNumber();
-            check(r1 == 0.9598971928030796);
-            check(r2 == 889);
-            check(r3 == 0.027539190730015265);
-            local clone = rng:Clone();
-            check(type(clone) ~= "nil");
-            local r4 = rng:NextInteger(979, 1379);
-            check(r4 == 1357);
-            local r5 = clone:NextNumber();
-            check(r5 == 0.3377740061710911);
-        end
-    end
-
-    -- buffer round-trip (Luraph checks 76-82). Luau-only.
-    if type(buffer) == "table" and type(buffer.create) == "function" then
-        local s5 = string.char(0, 1, 127, 128, 255, 65, 0, 90);
-        local v24 = buffer.fromstring(s5);
-        check(type(v24) == "buffer" and typeof and typeof(v24) == "buffer" and
-              buffer.len(v24) == #s5 and buffer.tostring(v24) == s5);
-        local v25 = buffer.create(48);
-        check(buffer.len(v25) == 48 and buffer.tostring(v25) == string.rep("\0", 48));
-        buffer.writei8(v25, 0, -128);
-        buffer.writeu8(v25, 1, 255);
-        buffer.writei16(v25, 2, -12345);
-        buffer.writeu16(v25, 4, 0xFEDC);
-        buffer.writei32(v25, 6, -123456789);
-        buffer.writeu32(v25, 10, 0xDEADBEEF);
-        buffer.writef32(v25, 14, 1.25);
-        buffer.writef64(v25, 18, -1234.5);
-        buffer.writestring(v25, 26, "A\0z");
-        check(buffer.readi8(v25, 0) == -128 and buffer.readu8(v25, 1) == 255 and
-              buffer.readi16(v25, 2) == -12345 and buffer.readu16(v25, 4) == 0xFEDC and
-              buffer.readi32(v25, 6) == -123456789 and
-              buffer.readu32(v25, 10) == 0xDEADBEEF and
-              buffer.readf32(v25, 14) == 1.25 and buffer.readf64(v25, 18) == -1234.5 and
-              buffer.readstring(v25, 26, 3) == "A\0z");
-        local ok5 = pcall(buffer.readu32, v25, 45);
-        local ok6 = pcall(buffer.writeu8, v25, -1, 0);
-        check(not ok5 and not ok6);
-    end
-
-    -- task thread results (Luraph task block). Luau-only.
-    if type(task) == "table" and type(task.spawn) == "function" then
-        local co3 = task.spawn(function() coroutine.yield(); end);
-        check(type(co3) == "thread");
-        pcall(coroutine.close, co3);
-        if type(task.delay) == "function" then
-            local co4 = task.delay(86400, function() end);
-            check(type(co4) == "thread");
-            if type(task.cancel) == "function" then task.cancel(co4); end
-        end
-    end
-
-    -- table.freeze readonly + nil-call error messages (Luraph readonly/nil-call).
-    -- Only the suffix of the error is asserted, so the check survives minor
-    -- wording differences between Luau revisions. On Lua 5.1 (no table.freeze)
-    -- the freeze branch is skipped entirely so it cannot false-positive.
-    if type(table.freeze) == "function" then
-        local readonly = table.freeze({});
-        local frozenErr = nil;
+    -- closures sharing upvalues — structural.
+    safeCheck(function()
+        local closures = {};
         for i = 1, 3 do
-            local ok, e = pcall(function() readonly[i] = i; end);
-            if not ok then frozenErr = e; end
-            check(not ok);
+            local captured = i;
+            closures[i] = function(increment)
+                captured = captured + increment;
+                return captured;
+            end
         end
-        if type(frozenErr) == "string" then
-            check(string.find(frozenErr, "readonly", 1, true) ~= nil);
-        end
-    end
-    local nilCallable = nil;
-    local nilOk, nilErr = pcall(function(...) return nilCallable(...); end);
-    check(not nilOk and type(nilErr) == "string" and
-          string.find(nilErr, "attempt to call a nil value", 1, true) ~= nil);
+        return closures[1](4) == 5 and closures[1](2) == 7 and
+               closures[2](3) == 5 and closures[3](1) == 4;
+    end);
 
-    -- Library integrity check (derived from Luraph library-status/key/value).
-    -- rather than asserting an exact `next` iteration order (which can shift
-    -- between Luau revisions and false-positive), this verifies that each
-    -- expected member still exists and is a function. A hook that *replaces*
-    -- a member with a Lua closure is caught separately by checkCClosure above;
-    -- here we catch the case where a member was deleted or swapped for a
-    -- non-function, plus a coarse size sanity check so a blatantly injected
-    -- extra member is still noticed on libraries with a stable surface.
+    -- metatables + metamethods — structural.
+    safeCheck(function()
+        local writes = {};
+        local metatable = {
+            __index = function(_, key) return "index:" .. tostring(key); end,
+            __newindex = function(_, key, value) writes[key] = value; end,
+            __add = function(l, r) return rawget(l, "value") + rawget(r, "value"); end,
+            __tostring = function() return "object"; end,
+        };
+        local left = setmetatable({ value = 13 }, metatable);
+        local right = setmetatable({ value = 7 }, metatable);
+        return left.missing == "index:missing" and
+               (function() left.recorded = 41; return writes.recorded == 41; end)() and
+               left + right == 20 and
+               tostring(left) == "object" and getmetatable(left) == metatable;
+    end);
+
+    -- table operations — structural.
+    safeCheck(function()
+        local values = { 4, 1, 3 };
+        table.insert(values, 2, 2);
+        return table.concat(values, ",") == "4,2,1,3" and
+               table.remove(values, 1) == 4 and
+               (function() table.sort(values); return table.concat(values, ",") == "1,2,3"; end)();
+    end);
+
+    -- string operations — structural.
+    safeCheck(function()
+        local binary = "A\0z";
+        return string.byte(binary, 1) == 65 and string.byte(binary, 2) == 0 and
+               string.byte(binary, 3) == 122 and
+               string.char(65, 0, 122) == binary and
+               string.sub("abcdef", 2, -2) == "bcde" and
+               string.reverse("abc\0") == "\0cba" and
+               string.rep("xy", 3) == "xyxyxy" and
+               string.format("%02x:%s", 15, "ok") == "0f:ok";
+    end);
+
+    -- math — structural.
+    safeCheck(function()
+        local nan = 0 / 0;
+        return tonumber("ff", 16) == 255 and math.floor(-1.25) == -2 and
+               math.abs(-17) == 17 and math.min(9, 3, 7) == 3 and math.max(9, 3, 7) == 9 and
+               math.huge > 1e308 and nan ~= nan and (-17 % 5) == 3;
+    end);
+
+    -- coroutine lifecycle — structural.
+    safeCheck(function()
+        local thread = coroutine.create(function(value)
+            local resumed = coroutine.yield(value + 1);
+            return resumed + 2;
+        end);
+        if coroutine.status(thread) ~= "suspended" then return false; end
+        local resumed, yielded = coroutine.resume(thread, 9);
+        if not (resumed and yielded == 10 and coroutine.status(thread) == "suspended") then return false; end
+        local completed, result = coroutine.resume(thread, 11);
+        return completed and result == 13 and coroutine.status(thread) == "dead";
+    end);
+
+    -- Library integrity: verify expected members still exist and are
+    -- functions. A hook that deletes or swaps a member is caught here; a
+    -- hook that *replaces* a member with a Lua closure is caught by
+    -- checkCClosure above. This is structural and engine-version-stable.
     local function checkLibraryMembers(source, keys)
-        for _, keyName in ipairs(keys) do
-            local value = source[keyName];
-            check(value ~= nil);
-            check(type(value) == "function");
-        end
+        safeCheck(function()
+            for _, keyName in ipairs(keys) do
+                local value = source[keyName];
+                if value == nil or type(value) ~= "function" then
+                    return false;
+                end
+            end
+            return true;
+        end);
     end
     checkLibraryMembers(string, {
         "byte", "char", "find", "format", "gmatch", "gsub", "len",
@@ -603,85 +416,30 @@ function AntiTamper:apply(ast, pipeline)
         });
     end
 
-    -- Error-message validation for builtins called with bad arguments
-    -- (Luraph t9, subset stable across Luau). Only the stable suffix is
-    -- matched via substring so minor wording shifts between Luau revisions do
-    -- not cause a false positive, while a hooked function that returns a
-    -- totally different (or no) error is still caught. The expected strings
-    -- are taken verbatim from the leaked Luraph 14.7 module, which was
-    -- captured from a real Roblox/Luau runtime.
-    local function expectError(fn, expectedSubstring)
-        local ok, e = pcall(fn);
-        check(not ok);
-        check(type(e) == "string" and
-              string.find(normalizeError(e), normalizeError(expectedSubstring), 1, true) ~= nil);
-    end
-    expectError(function() return getmetatable(); end, "argument #1");
-    expectError(function() return setmetatable(); end,
-        "argument #1 to 'setmetatable' (table expected)");
-    expectError(function() return tonumber(); end, "argument #1");
-    expectError(function() return tostring(); end, "argument #1");
-    expectError(function() return rawset(); end,
-        "argument #1 to 'rawset' (table expected)");
-    expectError(function() return rawget(); end,
-        "argument #1 to 'rawget' (table expected)");
-    expectError(function() return assert(); end, "argument #1");
-    expectError(function() return type(); end, "argument #1");
-    expectError(function() return next(); end,
-        "argument #1 to 'next' (table expected)");
-    expectError(function() return string.byte(); end,
-        "argument #1 to 'byte' (string expected)");
-    expectError(function() return string.char(nil); end,
-        "argument #1 to 'char' (number expected, got nil)");
-    expectError(function() return string.find(); end,
-        "argument #1 to 'find' (string expected)");
-    expectError(function() return string.format(); end,
-        "argument #1 to 'format' (string expected)");
-    expectError(function() return string.gsub(); end,
-        "argument #1 to 'gsub' (string expected)");
-    expectError(function() return string.rep(); end,
-        "argument #1 to 'rep' (string expected)");
-    expectError(function() return table.concat(); end,
-        "argument #1 to 'concat' (table expected)");
-    expectError(function() return table.insert(); end,
-        "argument #1 to 'insert' (table expected)");
-    expectError(function() return coroutine.create(); end,
-        "argument #1 to 'create' (function expected)");
-    expectError(function() return coroutine.resume(); end,
-        "argument #1 to 'resume' (thread expected)");
-    expectError(function() return coroutine.status(); end,
-        "argument #1 to 'status' (thread expected)");
-    if type(coroutine.isyieldable) == "function" then
-        check(type(coroutine.isyieldable()) == "boolean");
-    end
-
-    -- getfenv/setfenv round-trip (Luraph checks 1-4). Lua 5.1/Luau only.
-    -- The test function is created via loadstring (not a literal Lua closure)
-    -- so that it is a *native* Lua function whose global lookups go through
-    -- the function environment that setfenv modifies. When AntiTamper runs
-    -- inside Vmify, literal closures become VM-compiled functions that
-    -- resolve globals through the VM's own upvalue chain, bypassing setfenv
-    -- and making the v1()==v2 check spuriously fail.
-    if type(getfenv) == "function" then
-        local v1LoadOk, v1 = pcall(loadstring, "return v", "FengetheusAT_getfenv");
-        check(v1LoadOk and type(v1) == "function");
-        if v1LoadOk and type(v1) == "function" then
-            local ok, env = pcall(getfenv, v1);
-            check(ok and type(env) == "table");
-            if type(setfenv) == "function" then
-                local v2 = {};
-                local t15 = setmetatable({ v = v2 }, { __index = env });
-                local ok2, v21 = pcall(setfenv, v1, t15);
-                check(ok2 and v21 == v1);
-                check(v1() == v2);
-                check(pcall(setfenv, v1, env));
-            end
+    -- C-closure verification of every builtin we snapshotted. This is the
+    -- core hook-detection signal: a native builtin that has been replaced
+    -- with a Lua closure is flagged. Tolerant of missing debug APIs.
+    for _, fn in ipairs({
+        refs.assert, refs.error, refs.getmetatable, refs.next, refs.pairs,
+        refs.pcall, refs.rawequal, refs.rawget, refs.rawset, refs.select,
+        refs.setmetatable, refs.tonumber, refs.tostring, refs.type, refs.xpcall,
+        refs.stringByte, refs.stringChar, refs.stringSub, refs.stringFind,
+        refs.stringGsub, refs.stringFormat, refs.stringLen, refs.stringRep,
+        refs.stringReverse, refs.tableInsert, refs.tableRemove, refs.tableConcat,
+        refs.tableSort, refs.mathFloor, refs.mathAbs, refs.mathMin, refs.mathMax,
+        refs.coroutineCreate, refs.coroutineResume, refs.coroutineYield,
+        refs.coroutineStatus, refs.coroutineClose, refs.coroutineWrap,
+        refs.loadstring,
+    }) do
+        if type(fn) == "function" then
+            checkCClosure(fn);
         end
     end
 
-    -- Final anti-hookup equality: verify that none of the snapshotted builtins
-    -- were replaced in their original library after the snapshot was taken
-    -- (Luraph check 48). This is the single most important tamper signal.
+    -- Final anti-hookup equality: verify that none of the snapshotted
+    -- builtins were replaced in their original library after the snapshot
+    -- was taken. This is the single most important tamper signal and is
+    -- fully engine-version-stable (it only compares function identity).
     check(assert == refs.assert and error == refs.error and
           getmetatable == refs.getmetatable and next == refs.next and
           pairs == refs.pairs and pcall == refs.pcall and
@@ -760,35 +518,22 @@ function AntiTamper:apply(ast, pipeline)
     end
     valid = valid and acc1 == acc2;
 
-    if valid then else
-        repeat
-            return (function()
-                while true do
-                    l1, l2 = l2, l1;
-                    err();
-                end
-            end)();
-        until true;
-        while true do
-            l2 = random(1, 6);
-            if l2 > 2 then
-                l2 = tostring(l1);
-            else
-                l1 = l2;
-            end
-        end
-        return;
+    -- Final halt: if any check failed, error out (do NOT hang).
+    if not valid then
+        detected();
     end
 end
 
     -- Anti Function Arg Hook
     local obj = setmetatable({}, {
-        __tostring = err,
+        __tostring = function() error("Tamper Detected!", 0); end,
     });
     obj[math.random(1, 100)] = obj;
     (function() end)(obj);
 
-    repeat until valid;
+    if not valid then
+        error("Tamper Detected!", 0);
+    end
     ]]
 
 	local parsed = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 }):parse(code);
