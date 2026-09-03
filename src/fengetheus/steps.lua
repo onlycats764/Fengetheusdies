@@ -24,4 +24,5 @@ return {
 	Watermark = require("fengetheus.steps.Watermark");
 	WatermarkCheck = require("fengetheus.steps.WatermarkCheck");
 	WrapInFunction = require("fengetheus.steps.WrapInFunction");
+	JunkCode = require("fengetheus.steps.JunkCode");
 }
