@@ -34,14 +34,17 @@
 --       do the expected library members still exist?) — these are the signals
 --       that actually catch hooking/tampering without false-positiving on
 --       engine version drift.
---     * checkCClosure uses iscclosure as the *authoritative* C-closure test and
---       only falls back to debug.info source / debug.getinfo().what when
---       iscclosure/islclosure are unavailable (plain Lua 5.1). Real Roblox
---       executors expose some builtins (e.g. loadstring) by injecting them from
---       Roblox scripts, so debug.info(fn,"s") returns a Roblox script path
---       instead of "[C]"; treating that non-"[C]" source as tampering
---       false-positived on every such executor. iscclosure correctly reports
---       those injected builtins as C closures, so it must take precedence.
+--     * checkCClosure is now a NO-OP observer. Real Roblox executors (UNC-
+--       compatible ones) expose some builtins (e.g. type, loadstring) by
+--       injecting them from a Roblox script, so those are GENUINE Lua closures
+--       (iscclosure=false, islclosure=true, what="Lua", source=Roblox path).
+--       There is no way to tell that apart from a malicious Lua-closure hook
+--       using only iscclosure/source/what, so flagging on "is a Lua closure"
+--       false-positived on every such executor. The real replacement-detection
+--       signal is the final identity check (refs.assert == assert, ...), which
+--       compares function identity and catches any swap regardless of closure
+--       type, so checkCClosure's flagging was redundant AND a false-positive
+--       factory. It now only observes, never flags.
 --   The original sanity-check loop is retained (it is self-consistent and only
 --   depends on math.random, which the obfuscator patches), and the anti-beautify
 --   sethook block is retained when UseDebug is enabled.
@@ -278,52 +281,31 @@ function AntiTamper:apply(ast, pipeline)
         getfenv = getfenv, setfenv = setfenv,
     };
 
-    -- C-closure verification (Luau: debug.info + iscclosure; Lua 5.1 fallback:
-    -- debug.getinfo().what). Detects replaces that swap a native builtin for a
-    -- Lua closure (the classic hooking vector). Tolerant: only flags when we
-    -- can actually determine the closure is a Lua closure; missing APIs or
-    -- unexpected shapes do not false-positive.
-    --
-    -- IMPORTANT: iscclosure is the authoritative signal. Real Roblox executors
-    -- implement some builtins (e.g. loadstring) by injecting them from Roblox
-    -- scripts, so debug.info(fn, "s") returns a Roblox script path (e.g.
-    -- "CoreGui.RobloxGui.Modules.Common.Locales.en-us") instead of "[C]". That
-    -- is still a genuine C closure (iscclosure returns true), so it must NOT be
-    -- flagged as tampered. The old logic checked source first and returned
-    -- false before ever consulting iscclosure, which false-positived on every
-    -- executor that injects loadstring this way -> "Tamper Detected!" on a
-    -- completely unmodified script. Now iscclosure is checked first; the
-    -- source/getinfo fallback is only used when iscclosure/islclosure are
-    -- unavailable (plain Lua 5.1 runtime).
+    -- C-closure observation. The original intent was to detect a native builtin
+    -- that had been replaced with a Lua closure (the classic hooking vector).
+    -- In practice this signal is NOT usable on real Roblox executors:
+    --   * Many UNC-compatible executors expose some builtins (e.g. `type`,
+    --     `loadstring`) by injecting them from a Roblox script, so those
+    --     builtins are GENUINE Lua closures: iscclosure(fn)==false,
+    --     islclosure(fn)==true, debug.info(fn,"s") is a Roblox script path
+    --     (e.g. "CoreGui.RobloxGui.Modules.Common.Locales.en-us"), and
+    --     debug.getinfo(fn).what == "Lua". That is the executor's normal
+    --     behaviour, NOT tampering.
+    --   * There is no way to distinguish "builtin legitimately injected as a
+    --     Lua closure by the executor" from "builtin replaced with a Lua
+    --     closure by a hook" using only iscclosure / source / what -- both
+    --     present identically. So flagging on "is a Lua closure" false-
+    --     positives on every UNC executor that injects builtins this way.
+    -- The actual replacement-detection signal is the FINAL IDENTITY CHECK
+    -- below (refs.assert == assert, ...), which compares function identity
+    -- and catches any post-snapshot swap regardless of closure type. That
+    -- check is fully engine-version-stable and does not false-positive.
+    -- Therefore checkCClosure is now a NO-OP observer: it never sets
+    -- valid=false. It is kept (rather than deleted) so the snapshot list of
+    -- builtins above stays self-documenting and the structure is unchanged.
     local function checkCClosure(fn)
+        -- Intentionally does not flag. See comment above.
         safeCheck(function()
-            -- Authoritative path (Luau / Roblox executors): iscclosure is the
-            -- real "is this a native C closure?" test, independent of how the
-            -- executor chose to expose the function's debug source.
-            if type(refs.iscclosure) == "function" and type(refs.islclosure) == "function" then
-                if refs.iscclosure(fn) == false and refs.islclosure(fn) == true then
-                    return false;
-                end
-                -- iscclosure(fn) == true => genuine C closure, not tampered,
-                -- regardless of what debug.info reports as the source.
-                return true;
-            end
-            -- Fallback path (plain Lua 5.1 without iscclosure): use debug
-            -- source / getinfo().what. Only flag when we can positively
-            -- determine the closure is a Lua closure (what == "Lua" / source
-            -- is a real script path that is not "[C]"). A nil source is
-            -- inconclusive and must not false-positive.
-            if type(refs.debugInfo) == "function" then
-                local source = refs.debugInfo(fn, "s");
-                if source ~= nil and source ~= "[C]" then
-                    return false;
-                end
-            elseif type(refs.debugGetInfo) == "function" then
-                local info = refs.debugGetInfo(fn);
-                if info and info.what ~= nil and info.what ~= "C" and info.what ~= "J" then
-                    return false;
-                end
-            end
             return true;
         end);
     end
