@@ -9,8 +9,10 @@ return {
 	AntiSandbox = require("fengetheus.steps.AntiSandbox");
 	AntiTamper = require("fengetheus.steps.AntiTamper");
 	ConstantArray = require("fengetheus.steps.ConstantArray");
+	ConstantFolding = require("fengetheus.steps.ConstantFolding");
 	ConditionCamouflage = require("fengetheus.steps.ConditionCamouflage");
 	EncryptStrings = require("fengetheus.steps.EncryptStrings");
+	LocalCaching = require("fengetheus.steps.LocalCaching");
 	NumbersToExpressions = require("fengetheus.steps.NumbersToExpressions");
 	ProxifyLocals = require("fengetheus.steps.ProxifyLocals");
 	RewriteNamecalls = require("fengetheus.steps.RewriteNamecalls");
