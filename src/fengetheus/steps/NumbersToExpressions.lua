@@ -278,7 +278,21 @@ function NumbersToExpressions:CreateNumberExpression(val, depth)
 
 			local exp = math.floor(math.log10(math.abs(val)))
 			local mantissa = val / (10 ^ exp)
-			return Ast.NumberExpression(string.format("%.15ge%d", mantissa, exp))
+			-- Use %.17g (17 significant digits, the maximum precision of an
+			-- IEEE 754 double) so the literal round-trips exactly through
+			-- tonumber().  The previous %.15g silently truncated doubles like
+			-- 0.3377740061710911 -> 0.33777400617109, producing a *different*
+			-- number and corrupting any equality check that depends on the
+			-- exact bit pattern (e.g. Fengetheus AntiTamper Random
+			-- verification).  %.17g can append a spurious trailing digit for
+			-- doubles that do not need all 17 digits, but the round-trip
+			-- check below rejects any candidate that does not reproduce val
+			-- exactly, so we never emit a mathematically-wrong literal.
+			local candidate = string.format("%.17ge%d", mantissa, exp)
+			if tonumber(candidate) ~= val then
+				return Ast.NumberExpression(val)
+			end
+			return Ast.NumberExpression(candidate)
 		end
 
 		if format == "normal" then

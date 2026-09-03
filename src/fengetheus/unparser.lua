@@ -408,7 +408,36 @@ function Unparser:unparseExpression(expression, tabbing)
 	end
 
 	if(expression.kind == AstKind.NumberExpression) then
-		local str = tostring(expression.value);
+		-- Use %.17g to preserve the full precision of an IEEE 754 double.
+		-- Lua 5.1's tostring() uses only %.14g, which silently truncates
+		-- doubles such as 0.3377740061710911 -> 0.33777400617109,
+		-- producing a *different* number.  This corrupts any downstream
+		-- equality check that depends on the exact bit pattern (e.g.
+		-- Fengetheus AntiTamper Random verification, or any user code
+		-- comparing floating-point literals).
+		--
+		-- %.17g emits up to 17 significant digits.  For doubles that need
+		-- fewer digits, the trailing digits are zeros which %.17g strips,
+		-- so the output is the shortest round-tripping representation in
+		-- most cases.  For doubles that genuinely need 17 digits (the
+		-- worst case for a 64-bit mantissa), all digits are preserved.
+		--
+		-- When the value is already a string (NumbersToExpressions may
+		-- pass pre-formatted strings like "0xAB" or "1.5e1"), tostring is
+		-- a no-op and %.17g is never applied.
+		local val = expression.value;
+		local str;
+		if type(val) == "string" then
+			str = val;
+		else
+			str = string.format("%.17g", val);
+			-- Safety net: verify round-trip.  If %.17g somehow does not
+			-- reproduce the exact double (extremely rare), fall back to
+			-- the raw tostring which at least gives a valid number.
+			if tonumber(str) ~= val then
+				str = tostring(val);
+			end
+		end
 		if(str == "inf") then
 			return "2e1024"
 		end

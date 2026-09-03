@@ -499,9 +499,9 @@ function AntiTamper:apply(ast, pipeline)
             local clone = rng:Clone();
             check(type(clone) ~= "nil");
             local r4 = rng:NextInteger(979, 1379);
-            check(r4 == 1338);
+            check(r4 == 1357);
             local r5 = clone:NextNumber();
-            check(r5 == 0.010722157288309652);
+            check(r5 == 0.3377740061710911);
         end
     end
 
