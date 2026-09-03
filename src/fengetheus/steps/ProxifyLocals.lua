@@ -277,6 +277,30 @@ function ProxifyLocals:apply(ast, pipeline)
     end)
 
 
+    -- Pre-scan: lock all variables in any scope that already has too many
+    -- locals. ProxifyLocals doubles the local count of every proxified
+    -- variable (it emits one temporary local + one proxy local per original
+    -- local). Lua 5.1 limits a function to 200 locals and Luau to 255, so a
+    -- scope with > 100 locals would exceed both limits after proxification
+    -- (100 originals + 100 temps + 100 proxies = 300). This commonly happens
+    -- in Vmify-generated code, where the container function declares up to
+    -- MAX_REGS (100) register variables. Locking such scopes prevents the
+    -- "too many local variables" / "Out of registers" compilation error while
+    -- still proxifying all smaller scopes. The cap of 100 keeps the worst
+    -- case at 100 + 100 = 200, just under Lua 5.1's limit.
+    local PROXIFY_LOCAL_CAP = 100;
+    visitast(ast, function(node, data)
+        if(node.kind == AstKind.Block) then
+            local scope = node.scope;
+            if scope and not scope.isGlobal and #scope.variables > PROXIFY_LOCAL_CAP then
+                for id = 1, #scope.variables do
+                    disableMetatableInfo(scope, id);
+                end
+            end
+        end
+    end)
+
+
     visitast(ast, function(node, data)
         -- Lock for loop variables
         if(node.kind == AstKind.ForStatement) then

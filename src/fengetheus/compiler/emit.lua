@@ -28,6 +28,17 @@ return function(Compiler)
         return out;
     end
 
+    -- Luau limits a single function to 255 registers and Lua 5.1 to ~200.
+    -- A parallel assignment with N LHS entries where some are table-index
+    -- assignments (t[k] = ...) needs up to 3 registers per entry (t, k, and
+    -- the value) plus N registers for the RHS evaluation. When the merge
+    -- logic combines many adjacent assignments the combined LHS can easily
+    -- exceed 255, producing "Out of registers" compilation errors on large
+    -- scripts. This cap keeps every merged assignment well under both limits.
+    -- 60 LHS entries × ~3 regs ≈ 180, leaving headroom for RHS temporaries
+    -- and any other live registers in the function.
+    local MAX_MERGE_LHS = 60;
+
     local function canMergeParallelAssignmentStatements(statA, statB)
         if type(statA) ~= "table" or type(statB) ~= "table" then
             return false;
@@ -51,6 +62,12 @@ return function(Compiler)
         end
 
         if #a.lhs ~= #a.rhs or #b.lhs ~= #b.rhs then
+            return false;
+        end
+
+        -- Refuse to merge if the combined assignment would have too many LHS
+        -- entries, which would exceed the Luau/Lua register limit.
+        if (#a.lhs + #b.lhs) > MAX_MERGE_LHS then
             return false;
         end
 

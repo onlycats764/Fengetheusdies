@@ -7,9 +7,11 @@
 local Ast = require("fengetheus.ast");
 local Scope = require("fengetheus.scope");
 local util = require("fengetheus.util");
+local constants = require("fengetheus.compiler.constants");
 
 local lookupify = util.lookupify;
 local AstKind = Ast.AstKind;
+local MAX_CLOSURE_CREATORS = constants.MAX_CLOSURE_CREATORS;
 
 local unpack = unpack or table.unpack;
 
@@ -341,8 +343,39 @@ function Compiler:compile(ast)
 end
 
 function Compiler:getCreateClosureVar(argCount)
-    if not self.createClosureVars[argCount] then
-        local var = Ast.AssignmentVariable(self.scope, self.scope:addVariable());
+    -- If we already have a creator for this exact arity, reuse it.
+    if self.createClosureVars[argCount] then
+        local var = self.createClosureVars[argCount].var;
+        return var.scope, var.id;
+    end
+
+    -- Count how many distinct creators currently exist.
+    local existingCount = 0;
+    for _ in pairs(self.createClosureVars) do
+        existingCount = existingCount + 1;
+    end
+
+    -- If we have reached the cap, reuse an existing creator whose arity is
+    -- >= the requested argCount (it accepts extra trailing args that are
+    -- simply ignored at the call site). If no suitable one exists, fall back
+    -- to the vararg closure creator which handles any arity.
+    if existingCount >= MAX_CLOSURE_CREATORS then
+        local bestId = nil;
+        local bestArity = math.huge;
+        for arity, entry in pairs(self.createClosureVars) do
+            if arity >= argCount and arity < bestArity then
+                bestArity = arity;
+                bestId = entry;
+            end
+        end
+        if bestId then
+            return bestId.var.scope, bestId.var.id;
+        end
+        -- No creator with enough arity; use the vararg closure creator.
+        return self.scope, self.createVarargClosureVar;
+    end
+
+    local var = Ast.AssignmentVariable(self.scope, self.scope:addVariable());
         local createClosureScope = Scope:new(self.scope);
         local createClosureSubScope = Scope:new(createClosureScope);
 
@@ -396,11 +429,9 @@ function Compiler:getCreateClosureVar(argCount)
             var = var,
             val = val,
         }
-    end
 
-
-    local var = self.createClosureVars[argCount].var;
-    return var.scope, var.id;
+    local v = self.createClosureVars[argCount].var;
+    return v.scope, v.id;
 end
 
 return Compiler;
