@@ -17,6 +17,7 @@ return {
 	ExtractGlobals = require("fengetheus.steps.ExtractGlobals");
 	LocalCaching = require("fengetheus.steps.LocalCaching");
 	NumbersToExpressions = require("fengetheus.steps.NumbersToExpressions");
+	OpaquePredicate = require("fengetheus.steps.OpaquePredicate");
 	ProxifyLocals = require("fengetheus.steps.ProxifyLocals");
 	RewriteNamecalls = require("fengetheus.steps.RewriteNamecalls");
 	SplitStrings = require("fengetheus.steps.SplitStrings");

@@ -64,6 +64,7 @@ return {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "ConstantArray",
@@ -97,6 +98,7 @@ return {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "Vmify", Settings = {} },
 			{
 				Name = "ConstantArray",
@@ -129,6 +131,7 @@ return {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "Vmify", Settings = {} },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 		},
@@ -151,6 +154,7 @@ return {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 				{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
@@ -231,6 +235,7 @@ return {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{
 				Name = "AntiSandbox",
 				Settings = {
@@ -310,6 +315,7 @@ return {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "AntiTamper",
