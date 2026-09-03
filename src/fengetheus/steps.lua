@@ -13,6 +13,7 @@ return {
 	EncryptStrings = require("fengetheus.steps.EncryptStrings");
 	NumbersToExpressions = require("fengetheus.steps.NumbersToExpressions");
 	ProxifyLocals = require("fengetheus.steps.ProxifyLocals");
+	RewriteNamecalls = require("fengetheus.steps.RewriteNamecalls");
 	SplitStrings = require("fengetheus.steps.SplitStrings");
 	Vmify = require("fengetheus.steps.Vmify");
 	Watermark = require("fengetheus.steps.Watermark");
