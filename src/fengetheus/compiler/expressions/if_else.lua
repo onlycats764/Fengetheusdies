@@ -33,7 +33,7 @@ return function(self, expression, funcDepth, numReturns)
 	local nextBlock = self:createBlock();
 	local innerBlock = self:createBlock();
 
-	self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(scope, conditionReg), Ast.NumberExpression(innerBlock.id)), Ast.NumberExpression(nextBlock.id))), {self.POS_REGISTER}, {conditionReg}, false);
+	self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(scope, conditionReg), self:blockIdExpression(innerBlock.id)), self:blockIdExpression(nextBlock.id))), {self.POS_REGISTER}, {conditionReg}, false);
 	self:freeRegister(conditionReg, false);
 
 	self:setActiveBlock(innerBlock);
@@ -41,7 +41,7 @@ return function(self, expression, funcDepth, numReturns)
 
 	local trueReg = self:compileExpression(expression.true_value, funcDepth, 1)[1];
 	self:addStatement(self:copyRegisters(scope, {resReg}, {trueReg}), {resReg}, {trueReg}, false);
-	self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.NumberExpression(finalBlock.id)), {self.POS_REGISTER}, {}, false);
+	self:addStatement(self:setRegister(scope, self.POS_REGISTER, self:blockIdExpression(finalBlock.id)), {self.POS_REGISTER}, {}, false);
 
 	for _, elif in ipairs(expression.elseifs) do
 		self:setActiveBlock(nextBlock);
@@ -50,21 +50,21 @@ return function(self, expression, funcDepth, numReturns)
 		nextBlock = self:createBlock();
 		local elifScope = self.activeBlock.scope;
 
-		self:addStatement(self:setRegister(elifScope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(elifScope, conditionReg), Ast.NumberExpression(elifBlock.id)), Ast.NumberExpression(nextBlock.id))), {self.POS_REGISTER}, {conditionReg}, false);
+		self:addStatement(self:setRegister(elifScope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(elifScope, conditionReg), self:blockIdExpression(elifBlock.id)), self:blockIdExpression(nextBlock.id))), {self.POS_REGISTER}, {conditionReg}, false);
 		self:freeRegister(conditionReg, false);
 
 		self:setActiveBlock(elifBlock);
 		elifScope = elifBlock.scope;
 		local valueReg = self:compileExpression(elif.value, funcDepth, 1)[1];
 		self:addStatement(self:copyRegisters(elifScope, {resReg}, {valueReg}), {resReg}, {valueReg}, false);
-		self:addStatement(self:setRegister(elifScope, self.POS_REGISTER, Ast.NumberExpression(finalBlock.id)), {self.POS_REGISTER}, {}, false);
+		self:addStatement(self:setRegister(elifScope, self.POS_REGISTER, self:blockIdExpression(finalBlock.id)), {self.POS_REGISTER}, {}, false);
 	end
 
 	self:setActiveBlock(nextBlock);
 	scope = self.activeBlock.scope;
 	local falseReg = self:compileExpression(expression.false_value, funcDepth, 1)[1];
 	self:addStatement(self:copyRegisters(scope, {resReg}, {falseReg}), {resReg}, {falseReg}, false);
-	self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.NumberExpression(finalBlock.id)), {self.POS_REGISTER}, {}, false);
+	self:addStatement(self:setRegister(scope, self.POS_REGISTER, self:blockIdExpression(finalBlock.id)), {self.POS_REGISTER}, {}, false);
 
 	self.registers[self.POS_REGISTER] = posState;
 

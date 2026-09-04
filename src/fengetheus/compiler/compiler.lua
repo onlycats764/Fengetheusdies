@@ -34,7 +34,10 @@ function Compiler:new(options)
         maxUsedRegister = 0;
         registerVars = {};
 		DispatchMask = options.DispatchMask == true;
+		DispatchAffine = options.DispatchAffine == true;
 		DispatchMaskMagnitude = options.DispatchMaskMagnitude or 4096;
+		DispatchMultiplier = 1;
+		DispatchOffset = 0;
 
         VAR_REGISTER = newproxy(false);
         RETURN_ALL = newproxy(false);
@@ -98,8 +101,17 @@ function Compiler:compile(ast)
     self.usedBlockIds = {};
 	self.ir = nil;
 
-    self.upvalVars = {};
-    self.registerUsageStack = {};
+	self.upvalVars = {};
+	self.registerUsageStack = {};
+	if self.DispatchAffine then
+		-- Keep the multiplier positive so the binary dispatch tree remains
+		-- ordered. Block IDs are 24-bit integers, so these products are exact.
+		self.DispatchMultiplier = math.random(3, 15) * 2 + 1;
+		self.DispatchOffset = math.random(-2^20, 2^20);
+	else
+		self.DispatchMultiplier = 1;
+		self.DispatchOffset = 0;
+	end
 
     self.upvalsProxyLenReturn = math.random(-2^22, 2^22);
 
@@ -339,7 +351,7 @@ function Compiler:compile(ast)
         Ast.AssignmentStatement(assignmentStatLhs, assignmentStatRhs);
         Ast.ReturnStatement{
             Ast.FunctionCallExpression(Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.createVarargClosureVar), {
-                    Ast.NumberExpression(self.startBlockId);
+					self:blockIdExpression(self.startBlockId);
                     Ast.TableConstructorExpression(upvalEntries);
                 }), {Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.unpackVar), {Ast.VariableExpression(self.scope, argVar)})});
         }

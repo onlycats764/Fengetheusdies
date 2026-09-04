@@ -13,10 +13,14 @@ Vmify.Description = "This Step will Compile your script into a fully-custom (not
 Vmify.Name = "Vmify";
 
 Vmify.SettingsDescriptor = {
-    DispatchMask = {
-        type = "boolean",
-        default = false,
-    },
+	DispatchMask = {
+		type = "boolean",
+		default = false,
+	},
+	DispatchAffine = {
+		type = "boolean",
+		default = false,
+	},
     DispatchMaskMagnitude = {
         type = "number",
         default = 4096,
@@ -28,14 +32,16 @@ Vmify.SettingsDescriptor = {
 function Vmify:init()
     -- Step:new() assigns validated settings before calling init() and does not
     -- pass the settings table a second time. Preserve those values here.
-    self.DispatchMask = self.DispatchMask == true
-    self.DispatchMaskMagnitude = self.DispatchMaskMagnitude or 4096
+	self.DispatchMask = self.DispatchMask == true
+	self.DispatchAffine = self.DispatchAffine == true
+	self.DispatchMaskMagnitude = self.DispatchMaskMagnitude or 4096
 end
 
 function Vmify:apply(ast)
     -- Create Compiler
 	local compiler = Compiler:new({
         DispatchMask = self.DispatchMask,
+        DispatchAffine = self.DispatchAffine,
         DispatchMaskMagnitude = self.DispatchMaskMagnitude,
     });
 

@@ -191,6 +191,17 @@ return function(Compiler)
         return Ast.VariableExpression(self.containerFuncScope, self.posVar);
     end
 
+    function Compiler:encodeDispatchValue(value)
+        if self.DispatchAffine then
+            return value * self.DispatchMultiplier + self.DispatchOffset;
+        end
+        return value;
+    end
+
+    function Compiler:blockIdExpression(id)
+        return Ast.NumberExpression(self:encodeDispatchValue(id));
+    end
+
     function Compiler:posAssignment(scope)
         scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
         return Ast.AssignmentVariable(self.containerFuncScope, self.posVar);
@@ -223,7 +234,7 @@ return function(Compiler)
             return Ast.AssignmentStatement({Ast.AssignmentVariable(self.containerFuncScope, self.posVar)}, {v});
         end
         scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
-        return Ast.AssignmentStatement({Ast.AssignmentVariable(self.containerFuncScope, self.posVar)}, {Ast.NumberExpression(val) or Ast.NilExpression()});
+        return Ast.AssignmentStatement({Ast.AssignmentVariable(self.containerFuncScope, self.posVar)}, {self:blockIdExpression(val) or Ast.NilExpression()});
     end
 
     function Compiler:setReturn(scope, val)

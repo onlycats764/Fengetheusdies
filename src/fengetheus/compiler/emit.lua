@@ -238,13 +238,13 @@ return function(Compiler)
                 bound = leftId + 1;
             end
             local posExpr = self:pos(scope);
-            local boundExpr = Ast.NumberExpression(bound);
+            local boundExpr = Ast.NumberExpression(self:encodeDispatchValue(bound));
 			if self.DispatchMask then
 				local magnitude = math.max(1, math.floor(self.DispatchMaskMagnitude or 4096));
 				local jitter = math.random(-magnitude, magnitude);
 				if jitter == 0 then jitter = magnitude; end
 				posExpr = Ast.AddExpression(posExpr, Ast.NumberExpression(jitter));
-				boundExpr = Ast.NumberExpression(bound + jitter);
+				boundExpr = Ast.NumberExpression(self:encodeDispatchValue(bound) + jitter);
 			end
 
             if useAndOr then
@@ -338,13 +338,13 @@ return function(Compiler)
             local condition;
             local trueBlock, falseBlock;
 			local posExpr = self:pos(ifScope);
-			local boundExpr = Ast.NumberExpression(bound);
+			local boundExpr = Ast.NumberExpression(self:encodeDispatchValue(bound));
 			if self.DispatchMask then
 				local magnitude = math.max(1, math.floor(self.DispatchMaskMagnitude or 4096));
 				local jitter = math.random(-magnitude, magnitude);
 				if jitter == 0 then jitter = magnitude; end
 				posExpr = Ast.AddExpression(posExpr, Ast.NumberExpression(jitter));
-				boundExpr = Ast.NumberExpression(bound + jitter);
+				boundExpr = Ast.NumberExpression(self:encodeDispatchValue(bound) + jitter);
 			end
 
             if condStyle == 1 then
