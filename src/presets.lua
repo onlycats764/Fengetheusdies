@@ -84,7 +84,9 @@ local presets = {
 	-- Weak obfuscation. Very readable, low performance loss.
 	-- Strengthened: ConstantArray now shuffles and rotates its index array,
 	-- making the constant lookup less trivially reversible at no correctness
-	-- cost.
+	-- cost. AntiTamper runs after Vmify with debug hooks disabled, so it adds
+	-- startup integrity checks without putting a hook or another VM layer on
+	-- the hot path of the protected program.
 	["Weak"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -99,6 +101,7 @@ local presets = {
 			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "Vmify", Settings = {} },
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
 			{
 				Name = "ConstantArray",
 				Settings = {

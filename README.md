@@ -61,7 +61,7 @@ When `--out` is omitted, Fengetheus writes the result beside the input file usin
 | Preset | Intended use |
 | --- | --- |
 | `Minify` | Reduce formatting and output size without adding the heavier obfuscation layers. |
-| `Weak` | Apply a light obfuscation pipeline with lower transformation overhead. |
+| `Weak` | Apply a light VM obfuscation pipeline with integrity checks and lower transformation overhead. |
 | `Medium` | Apply multiple protection and transformation layers for a balanced profile. |
 | `Strong` | Apply the most comprehensive standard pipeline, including VM-based transformation, string encryption, anti-tamper logic, local proxying, constant-array transformations, numeric expression mutation, and function wrapping. |
 | `StrongVM2` | Use the Strong pipeline with randomized virtual-register layout, validated VM IR materialization, nonlinear bucket-encoded VM states, bounded multi-entry bounce trampolines, masked dispatcher bounds, and a bounded second lookup-indirection layer for encrypted strings. |
