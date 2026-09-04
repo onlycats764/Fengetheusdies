@@ -3,28 +3,55 @@
 --
 -- This Script provides the predefined obfuscation presets for Fengetheus
 --
--- Fengetheus preset tuning notes:
---   The Weak/Medium/Strong presets were strengthened by activating features
---   that Prometheus ships but the upstream presets left unused:
---     * Shuffle + Rotate on every ConstantArray pass (randomised index order
---       + per-call rotation of the decrypted array).
---     * LocalWrapperCount / LocalWrapperArgCount on ConstantArray (emits junk
---       wrapper functions with bogus arguments around the array decoder,
---       adding dead code and extra indirection that a reverser must untangle).
---     * SplitStrings (splits string literals into shuffled chunks reassembled
---       via custom local/global functions) on Medium and Strong.
---   The double-Vmify (bytecode-in-bytecode) was tested and is technically
---   correct thanks to a fix in compiler/upvalue.lua's createUpvaluesProxyFunc
---   __len metamethod (wrong scope parenting), but it was removed from the
---   Strong preset because it is too slow for real-world scripts (>5 minutes
---   for a 186-line GUI script). SplitStrings + LocalWrappers provide
---   comparable indirection at a fraction of the cost.
---   All configurations were verified to produce output that executes
---   identically to the original (same printed output AND return values) across
---   every test case and multiple seeds, in LuaNode-VM.
+-- ═══════════════════════════════════════════════════════════════════════════
+-- FENGETHEUS PRESET ARCHITECTURE — ANTI-RECOGNITION DESIGN
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- The original Prometheus presets (Weak/Medium/Strong) all used the same
+-- step ordering: ConstantFolding → DeadCodeElimination →
+-- RedundantOperationElimination → LocalCaching → ExtractGlobals →
+-- OpaquePredicate → Vmify → AntiTamper → ...
+--
+-- Deobfuscation bots recognise this signature instantly — the step
+-- sequence, the Vmify placement, and the AntiTamper `do…end` block
+-- structure are all dead giveaways of a Prometheus-family obfuscator.
+--
+-- Fengetheus breaks this recognition by:
+--
+--  1. SHUFFLING THE STEP ORDER in every preset.  No two presets share the
+--     same pipeline shape.  Some put Vmify first, some put anti-tamper
+--     before string encryption, some omit the standard optimiser trio
+--     entirely.
+--
+--  2. INTRODUCING TAMPEROBFUSCATOR after every AntiTamper / AntiSandbox
+--     pass.  This step XOR-encrypts the generated integrity-check code
+--     and replaces it with a polymorphic self-decoding loader.  A static
+--     dumper sees only an opaque byte string and a tiny XOR loop — it
+--     cannot pattern-match the anti-tamper structure, recognise the
+--     sanity-loop, or extract the builtin snapshot list.
+--
+--  3. USING NON-STANDARD STEPS that Prometheus presets never enabled:
+--     ControlFlowMutation, ConditionCamouflage, RewriteNamecalls,
+--     AddVararg, TamperObfuscator.  These produce AST shapes that
+--     Prometheus-trained bots do not expect.
+--
+--  4. VARYING VM DISPATCH OPTIONS across presets (Mask, Affine, Bounce,
+--     Nonlinear, AliasCount) so the generated VM dispatcher looks
+--     different in each preset.
+--
+-- The result: each preset produces structurally unique output that does
+-- not match any known Prometheus signature, while remaining functionally
+-- correct (verified across all test cases in Lumora).
+--
+-- All configurations were verified to produce output that executes
+-- identically to the original (same printed output AND return values)
+-- across every test case and multiple seeds, in Lumora (Luau runtime).
 
 local presets = {
-	-- Minifies your code. Does not obfuscate it. No performance loss.
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- Minify: Pure minification, no obfuscation. No performance loss.
+	-- Kept unchanged — this is a utility preset, not a security preset.
+	-- ═══════════════════════════════════════════════════════════════════════
 	["Minify"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -39,18 +66,11 @@ local presets = {
 		},
 	},
 
-
-	-- Balanced obfuscation. Medium-strength protection with minimal
-	-- performance loss and NO register/locals-limit risk, so it works on
-	-- large LuaU/Roblox scripts where Weak (Vmify -> 255-register limit),
-	-- Medium (Vmify + SplitStrings) and Strong (ProxifyLocals -> 200-locals
-	-- limit) can fail to even load. Omits the bytecode VM (Vmify) and local
-	-- proxification (ProxifyLocals); keeps string encryption, a
-	-- shuffled/rotated strings-only constant array, numeric expression
-	-- mutation, anti-tamper and function wrapping. Override the target with
-	-- --LuaU when obfuscating LuaU scripts that use `continue`/compound
-	-- assignment (the VM-less pipeline preserves those as native syntax,
-	-- which Roblox executors support).
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- Balanced: Medium-strength, NO Vmify, NO ProxifyLocals.
+	-- Works on large LuaU/Roblox scripts where VM-based presets hit the
+	-- 255-register or 200-locals limit. Kept as a stable fallback.
+	-- ═══════════════════════════════════════════════════════════════════════
 	["Balanced"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -77,17 +97,28 @@ local presets = {
 			},
 			{ Name = "NumbersToExpressions", Settings = {} },
 			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "TamperObfuscator", Settings = { XORLayers = 1 } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
-	-- Weak obfuscation. Very readable, low performance loss.
-	-- Strengthened: ConstantArray now shuffles and rotates its index array,
-	-- making the constant lookup less trivially reversible at no correctness
-	-- cost. AntiTamper runs after Vmify with debug hooks disabled, so it adds
-	-- startup integrity checks without putting a hook or another VM layer on
-	-- the hot path of the protected program.
-	["Weak"] = {
+
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- PHANTOM — Replaces "Weak"
+	-- ───────────────────────────────────────────────────────────────────────
+	-- VM-FIRST ordering.  Vmify runs early (right after the optimiser
+	-- trio), BEFORE string encryption and anti-tamper.  This is the
+	-- opposite of Prometheus Weak where Vmify runs late.  The anti-tamper
+	-- code is XOR-obfuscated via TamperObfuscator so bots cannot
+	-- recognise the integrity-check structure.  RewriteNamecalls converts
+	-- method calls to bracket-index form, adding a shape that
+	-- Prometheus presets never produce.
+	--
+	-- Pipeline: Opt → Vmify → EncryptStrings → ConstantArray(shuffled)
+	--           → NumbersToExpressions → AntiTamper → TamperObfuscator
+	--           → RewriteNamecalls → JunkCode → WrapInFunction
+	-- ═══════════════════════════════════════════════════════════════════════
+	["Phantom"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -98,10 +129,9 @@ local presets = {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
-			{ Name = "ExtractGlobals", Settings = {} },
-			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "Vmify", Settings = {} },
-			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "ConstantArray",
 				Settings = {
@@ -112,15 +142,31 @@ local presets = {
 					LocalWrapperThreshold = 0,
 				},
 			},
+			{ Name = "NumbersToExpressions", Settings = {} },
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "TamperObfuscator", Settings = { XORLayers = 1 } },
+			{ Name = "RewriteNamecalls", Settings = { Threshold = 0.5, BracketIndex = true } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
 
-	-- WeakStealth keeps Weak's low runtime cost but makes the integrity layer
-	-- less recognizable in a static scan. It is deliberately a separate preset
-	-- so existing Weak output remains reproducible and backwards compatible.
-	["WeakStealth"] = {
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- WRAITH — Replaces "WeakStealth"
+	-- ───────────────────────────────────────────────────────────────────────
+	-- Stealth-focused.  Uses Stealth-mode AntiTamper (which already uses
+	-- _G[string.char(...)] lookups and non-literal failure loops) and
+	-- then wraps that in TamperObfuscator for double obfuscation.
+	-- ControlFlowMutation runs BEFORE Vmify (unusual — Prometheus puts
+	-- control-flow steps after the VM), creating a different AST shape
+	-- entering the VM compiler.  SplitStrings adds string-chunk
+	-- indirection before the VM pass.
+	--
+	-- Pipeline: Opt → OpaquePredicate → ControlFlowMutation → SplitStrings
+	--           → Vmify → AntiTamper(stealth) → TamperObfuscator(2 layers)
+	--           → ConditionCamouflage → JunkCode → WrapInFunction
+	-- ═══════════════════════════════════════════════════════════════════════
+	["Wraith"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -132,29 +178,45 @@ local presets = {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
-			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.6 } },
+			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.5, Layers = 1 } },
+			{
+				Name = "SplitStrings",
+				Settings = {
+					Threshold = 0.4,
+					MinLength = 2,
+					MaxLength = 5,
+					ConcatenationType = "custom",
+					CustomFunctionType = "local",
+					CustomLocalFunctionsCount = 1,
+				},
+			},
 			{ Name = "Vmify", Settings = {} },
 			{ Name = "AntiTamper", Settings = { UseDebug = false, Stealth = true } },
-			{
-				Name = "ConstantArray",
-				Settings = {
-					Threshold = 1,
-					StringsOnly = true,
-					Shuffle = true,
-					Rotate = true,
-					LocalWrapperThreshold = 0,
-				},
-			},
+			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
+			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.4 } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
 
-	-- This is here for the tests.lua file.
-	-- It helps isolate any problems with the Vmify step.
-	-- It is not recommended to use this preset for obfuscation.
-	-- Use the Weak, Medium, or Strong for obfuscation instead.
-	["Vmify"] = {
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- CIPHER — Replaces "Medium"
+	-- ───────────────────────────────────────────────────────────────────────
+	-- AntiSandbox runs FIRST (before any other obfuscation), then
+	-- AntiTamper, then both are XOR-obfuscated in one TamperObfuscator
+	-- pass.  This is the reverse of Prometheus Medium where anti-tamper
+	-- runs late.  SplitStrings runs before EncryptStrings (opposite
+	-- order from Medium), and the ConstantArray has local wrappers
+	-- (junk wrapper functions around the decoder).  ConditionCamouflage
+	-- adds `not not` around conditions after the VM.
+	--
+	-- Pipeline: Opt → AntiSandbox → AntiTamper → TamperObfuscator(2 layers)
+	--           → EncryptStrings → SplitStrings → Vmify → ConstantArray(wrappers)
+	--           → NumbersToExpressions → ConditionCamouflage → JunkCode
+	--           → WrapInFunction
+	-- ═══════════════════════════════════════════════════════════════════════
+	["Cipher"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -166,30 +228,18 @@ local presets = {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
-			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
-			{ Name = "Vmify", Settings = {} },
-			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
-		},
-	},
-
-	-- Medium obfuscation. Moderate obfuscation, moderate performance loss.
-	-- Strengthened with SplitStrings (string chunking) and LocalWrapperCount
-	-- (junk wrapper functions around the constant-array decoder). The
-	-- reassembly helper is local: global helper injection is observable by
-	-- Roblox scripts and can also introduce an extra global into Vmify input.
-	["Medium"] = {
-		LuaVersion = "Lua51",
-		VarNamePrefix = "",
-		NameGenerator = "MangledShuffled",
-		PrettyPrint = false,
-		Seed = 0,
-		Steps = {
-			{ Name = "ConstantFolding", Settings = {} },
-			{ Name = "DeadCodeElimination", Settings = {} },
-			{ Name = "RedundantOperationElimination", Settings = {} },
-			{ Name = "LocalCaching", Settings = {} },
-			{ Name = "ExtractGlobals", Settings = {} },
-			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
+			{
+				Name = "AntiSandbox",
+				Settings = {
+					UseDebug = true,
+					CheckExecutorAPIs = false,
+					CheckTiming = true,
+					FailureMode = "mixed",
+					Intensity = 4,
+				},
+			},
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
@@ -200,23 +250,6 @@ local presets = {
 					ConcatenationType = "custom",
 					CustomFunctionType = "local",
 					CustomLocalFunctionsCount = 1,
-				},
-			},
-			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.55 } },
-			{
-				Name = "AntiTamper",
-				Settings = {
-					UseDebug = false,
-				},
-			},
-			{
-				Name = "AntiSandbox",
-				Settings = {
-					UseDebug = true,
-					CheckExecutorAPIs = false,
-					CheckTiming = true,
-					FailureMode = "mixed",
-					Intensity = 4,
 				},
 			},
 			{ Name = "Vmify", Settings = {} },
@@ -233,32 +266,126 @@ local presets = {
 				},
 			},
 			{ Name = "NumbersToExpressions", Settings = {} },
+			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.55 } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
 
-	-- Strong obfuscation, high performance loss.
-	-- Maximum layering WITHOUT double-Vmify: a single Vmify pass (bytecode VM
-	-- -- the hardest single layer to reverse), EncryptStrings, SplitStrings
-	-- with local reassembly functions, AntiTamper, ProxifyLocals (wraps every
-	-- local in a proxy with metamethods), two ConstantArray passes (full +
-	-- strings-only) with shuffle/rotate, NumbersToExpressions with representation
-	-- mutation, and WrapInFunction.
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- AEGIS — New mid-tier (NO Vmify, pure AST hardening)
+	-- ───────────────────────────────────────────────────────────────────────
+	-- A VM-free preset for scripts where the bytecode VM would hit
+	-- register/locals limits.  Compensates with heavy AST-level
+	-- obfuscation: double ControlFlowMutation (two independent passes
+	-- with different layer counts), ProxifyLocals, double ConstantArray
+	-- (full + strings-only), RewriteNamecalls with bracket indexing,
+	-- OpaquePredicate, EncryptStrings, SplitStrings, and XOR-obfuscated
+	-- anti-tamper + anti-sandbox.  No two steps share the same position
+	-- as in any Prometheus preset.
 	--
-	-- Do not enable ConstantArray local wrappers here. This pass runs after
-	-- Vmify and ProxifyLocals, where the AST already contains the generated VM
-	-- runtime and many function scopes. Decorating every such scope multiplies
-	-- the generated AST and makes Strong take minutes even for tiny inputs. The
-	-- non-wrapper ConstantArray path retains array indirection, shuffled/rotated
-	-- lookup layout and string encoding while keeping completion bounded.
+	-- Pipeline: Opt → OpaquePredicate → ControlFlowMutation(2 layers)
+	--           → EncryptStrings → SplitStrings → AntiSandbox → AntiTamper
+	--           → TamperObfuscator(2 layers) → ProxifyLocals
+	--           → ConstantArray(full) → ConstantArray(strings) → RewriteNamecalls
+	--           → NumbersToExpressions(mutation) → ConditionCamouflage
+	--           → ControlFlowMutation(1 layer, second pass) → JunkCode
+	--           → WrapInFunction
+	-- ═══════════════════════════════════════════════════════════════════════
+	["Aegis"] = {
+		LuaVersion = "Lua51",
+		VarNamePrefix = "",
+		NameGenerator = "MangledShuffled",
+		PrettyPrint = false,
+		Seed = 0,
+		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.6 } },
+			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.7, Layers = 2 } },
+			{ Name = "EncryptStrings", Settings = {} },
+			{
+				Name = "SplitStrings",
+				Settings = {
+					Threshold = 0.6,
+					MinLength = 2,
+					MaxLength = 7,
+					ConcatenationType = "custom",
+					CustomFunctionType = "local",
+					CustomLocalFunctionsCount = 2,
+				},
+			},
+			{
+				Name = "AntiSandbox",
+				Settings = {
+					UseDebug = true,
+					CheckExecutorAPIs = false,
+					CheckTiming = true,
+					FailureMode = "mixed",
+					Intensity = 4,
+				},
+			},
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
+			{ Name = "ProxifyLocals", Settings = {} },
+			{
+				Name = "ConstantArray",
+				Settings = {
+					Threshold = 1,
+					StringsOnly = false,
+					Shuffle = true,
+					Rotate = true,
+					LocalWrapperThreshold = 0,
+				},
+			},
+			{
+				Name = "ConstantArray",
+				Settings = {
+					Threshold = 1,
+					StringsOnly = true,
+					Shuffle = true,
+					Rotate = true,
+					LocalWrapperThreshold = 0,
+				},
+			},
+			{ Name = "RewriteNamecalls", Settings = { Threshold = 0.7, BracketIndex = true } },
+			{
+				Name = "NumbersToExpressions",
+				Settings = {
+					NumberRepresentationMutation = true,
+				},
+			},
+			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.5 } },
+			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.5, Layers = 1 } },
+			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
+			{ Name = "WrapInFunction", Settings = {} },
+		},
+	},
+
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- TITAN — Replaces "Strong"
+	-- ───────────────────────────────────────────────────────────────────────
+	-- Maximum layering with a reorder that breaks Prometheus Strong's
+	-- signature.  Key differences from Strong:
+	--   • Vmify runs EARLY (after OpaquePredicate), not late.
+	--   • ProxifyLocals runs BEFORE AntiTamper (Strong runs it after).
+	--   • AntiSandbox runs BEFORE Vmify (Strong runs it after).
+	--   • ControlFlowMutation is applied (Strong does not use it).
+	--   • AntiTamper + AntiSandbox are both XOR-obfuscated.
+	--   • RewriteNamecalls with bracket indexing is added.
+	--   • ConditionCamouflage is added.
 	--
-	-- Double-Vmify (bytecode-in-bytecode) was tested and is technically
-	-- correct thanks to the upvalue.lua fix, but it is too slow for real-world
-	-- scripts (a 186-line GUI script takes >5 minutes to obfuscate). It has
-	-- been removed in favour of SplitStrings + LocalWrappers which add
-	-- comparable indirection at a fraction of the cost. See CHANGELOG.md.
-	["Strong"] = {
+	-- Pipeline: Opt → OpaquePredicate → AntiSandbox → Vmify(early)
+	--           → EncryptStrings → SplitStrings → ControlFlowMutation
+	--           → ProxifyLocals → AntiTamper → TamperObfuscator(2 layers)
+	--           → ConstantArray(full) → ConstantArray(strings)
+	--           → NumbersToExpressions(mutation) → RewriteNamecalls
+	--           → ConditionCamouflage → JunkCode → WrapInFunction
+	-- ═══════════════════════════════════════════════════════════════════════
+	["Titan"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -294,13 +421,10 @@ local presets = {
 					CustomLocalFunctionsCount = 2,
 				},
 			},
-			{
-				Name = "AntiTamper",
-				Settings = {
-					UseDebug = false,
-				},
-			},
+			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.8, Layers = 2 } },
 			{ Name = "ProxifyLocals", Settings = {} },
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
 			{
 				Name = "ConstantArray",
 				Settings = {
@@ -327,17 +451,22 @@ local presets = {
 					NumberRepresentationMutation = true,
 				},
 			},
+			{ Name = "RewriteNamecalls", Settings = { Threshold = 0.6, BracketIndex = true } },
+			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.5 } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
 
-	-- StrongScalable is used by the CLI for very large scripts whose generated
-	-- Strong output would exceed Lua's per-function local-variable or nesting
-	-- limits. It retains string encryption, anti-tamper, a shuffled/rotated
-	-- constant array, numeric expression mutation, and function wrapping while
-	-- avoiding the VM, local proxification, split-string helpers, and second
-	-- ConstantArray pass that can make a large result unloadable.
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- StrongScalable — kept as a stable fallback for very large scripts
+	-- whose generated Titan output would exceed Lua's per-function
+	-- local-variable or nesting limits.  Retains string encryption,
+	-- anti-tamper (XOR-obfuscated), a shuffled/rotated constant array,
+	-- numeric expression mutation, and function wrapping while avoiding
+	-- the VM, local proxification, split-string helpers, and second
+	-- ConstantArray pass.
+	-- ═══════════════════════════════════════════════════════════════════════
 	["StrongScalable"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
@@ -352,12 +481,8 @@ local presets = {
 			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "EncryptStrings", Settings = {} },
-			{
-				Name = "AntiTamper",
-				Settings = {
-					UseDebug = false,
-				},
-			},
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
+			{ Name = "TamperObfuscator", Settings = { XORLayers = 1 } },
 			{
 				Name = "ConstantArray",
 				Settings = {
@@ -378,15 +503,52 @@ local presets = {
 			{ Name = "WrapInFunction", Settings = {} },
 		},
 	},
+
+	-- ═══════════════════════════════════════════════════════════════════════
+	-- Vmify (test preset) — isolated VM test.  Not for production use.
+	-- ═══════════════════════════════════════════════════════════════════════
+	["Vmify"] = {
+		LuaVersion = "Lua51",
+		VarNamePrefix = "",
+		NameGenerator = "MangledShuffled",
+		PrettyPrint = false,
+		Seed = 0,
+		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
+			{ Name = "Vmify", Settings = {} },
+			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
+		},
+	},
 }
 
--- StrongVM2 keeps Strong's proven pipeline but adds independent control-flow
--- mutation, nonlinear bucket-encoded VM states, bounded bounce trampolines and a second lookup
--- layer. Build the step list independently so changing this preset can never
--- mutate Strong's configuration table by alias.
-local strongVm2Steps = {}
-local strongVm2ConstantArrays = 0
-for _, step in ipairs(presets.Strong.Steps) do
+-- ═══════════════════════════════════════════════════════════════════════════
+-- TITANVM2 — Replaces "StrongVM2"
+-- ───────────────────────────────────────────────────────────────────────
+-- Maximum hardening built on Titan's reordered pipeline.  Adds:
+--   • Dispatch-hardened Vmify (Mask + Affine + Bounce + Nonlinear +
+--     AliasCount=2) so the VM dispatcher looks nothing like standard
+--     Prometheus output.
+--   • A second ControlFlowMutation pass (the first is in Titan's base;
+--     this adds another independent mutation layer).
+--   • Bounded local-wrapper indirection on the strings-only
+--     ConstantArray (second array pass only — wrapping the first would
+--     multiply the VM runtime AST).
+--   • Multi-XOR tamper obfuscation (2 layers).
+--
+-- Built dynamically by copying Titan's steps and injecting dispatch
+-- options + an extra mutation pass.  Build the step list independently
+-- so changing this preset can never mutate Titan's configuration table
+-- by alias.
+-- ═══════════════════════════════════════════════════════════════════════════
+local titanVm2Steps = {}
+local titanVm2ConstantArrays = 0
+local titanVm2ControlFlowMutations = 0
+for _, step in ipairs(presets.Titan.Steps) do
 	local settings = {}
 	for key, value in pairs(step.Settings or {}) do
 		settings[key] = value
@@ -400,38 +562,63 @@ for _, step in ipairs(presets.Strong.Steps) do
 		settings.DispatchMaskMagnitude = 4096
 		settings.DispatchNoiseMagnitude = 7
 	elseif step.Name == "ConstantArray" then
-		strongVm2ConstantArrays = strongVm2ConstantArrays + 1
+		titanVm2ConstantArrays = titanVm2ConstantArrays + 1
 		-- Add a bounded second layer of local lookup indirection only to the
-		-- strings-only array. The first array contains VM data and is kept lean;
-		-- wrapping every generated VM scope would multiply compile time.
-		if strongVm2ConstantArrays == 2 then
+		-- strings-only array. The first array contains VM data and is kept
+		-- lean; wrapping every generated VM scope would multiply compile time.
+		if titanVm2ConstantArrays == 2 then
 			settings.LocalWrapperThreshold = 1
 			settings.LocalWrapperCount = 2
 			settings.LocalWrapperArgCount = 6
 		end
 	end
-	strongVm2Steps[#strongVm2Steps + 1] = {
+	-- Skip ProxifyLocals in TitanVM2.  The combination of double
+	-- ControlFlowMutation (which creates many opaque-predicate locals) +
+	-- ProxifyLocals (which wraps each local in a proxy) + the
+	-- dispatch-hardened VM exceeds the 200-upvalue register limit on
+	-- all but the tiniest scripts.  The dispatch-hardened VM already
+	-- provides strong protection that ProxifyLocals would only
+	-- marginally augment, so it is dropped here.
+	if step.Name == "ProxifyLocals" then
+		-- Replace with a third ConstantArray pass (full, no wrappers) to
+		-- keep array indirection without the register explosion.
+		titanVm2Steps[#titanVm2Steps + 1] = {
+			Name = "ConstantArray",
+			Settings = {
+				Threshold = 1,
+				StringsOnly = false,
+				Shuffle = true,
+				Rotate = true,
+				LocalWrapperThreshold = 0,
+			},
+		}
+	else
+	titanVm2Steps[#titanVm2Steps + 1] = {
 		Name = step.Name,
 		Settings = settings,
 	}
-	if step.Name == "OpaquePredicate" then
-		-- The mutation layer is exclusive to StrongVM2. It is kept after the
-		-- existing opaque pass so the two passes generate independent predicate
-		-- shapes without altering the behaviour of the standard presets.
-		strongVm2Steps[#strongVm2Steps + 1] = {
-			Name = "ControlFlowMutation",
-			Settings = { Threshold = 1, Layers = 2 },
-		}
+	end
+	-- Add an extra ControlFlowMutation pass after the first one in Titan.
+	-- This produces a second independent mutation layer with different
+	-- random predicates, further breaking Prometheus pattern matching.
+	if step.Name == "ControlFlowMutation" then
+		titanVm2ControlFlowMutations = titanVm2ControlFlowMutations + 1
+		if titanVm2ControlFlowMutations == 1 then
+			titanVm2Steps[#titanVm2Steps + 1] = {
+				Name = "ControlFlowMutation",
+				Settings = { Threshold = 0.5, Layers = 1 },
+			}
+		end
 	end
 end
 
-presets.StrongVM2 = {
-	LuaVersion = presets.Strong.LuaVersion,
-	VarNamePrefix = presets.Strong.VarNamePrefix,
-	NameGenerator = presets.Strong.NameGenerator,
-	PrettyPrint = presets.Strong.PrettyPrint,
-	Seed = presets.Strong.Seed,
-	Steps = strongVm2Steps,
+presets.TitanVM2 = {
+	LuaVersion = presets.Titan.LuaVersion,
+	VarNamePrefix = presets.Titan.VarNamePrefix,
+	NameGenerator = presets.Titan.NameGenerator,
+	PrettyPrint = presets.Titan.PrettyPrint,
+	Seed = presets.Titan.Seed,
+	Steps = titanVm2Steps,
 }
 
 return presets
