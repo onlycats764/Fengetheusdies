@@ -211,6 +211,7 @@ function Compiler:compile(ast)
 	-- where the error is actionable, instead of producing a misleading nil
 	-- dispatch failure much later in the generated program.
 	self.ir = irModule.fromCompiler(self);
+	irModule.materialize(self.ir);
 
     local functionNodeAssignments = {
         {

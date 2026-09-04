@@ -75,4 +75,25 @@ function IR.fromCompiler(compiler)
 	}
 end
 
+-- Materialize the lossless subset consumed by the current emitter. This is
+-- deliberately separate from validation: future instruction transforms can
+-- operate on IR and call this only after they have finished. Today it removes
+-- phantom nil-stat wrappers emitted by optional register copies while
+-- preserving source block identity, scopes, and dependency metadata.
+function IR.materialize(ir)
+	for _, block in ipairs(ir.blocks) do
+		local statements = {}
+		for _, instruction in ipairs(block.instructions) do
+			statements[#statements + 1] = {
+				statement = instruction.statement,
+				reads = instruction.reads,
+				writes = instruction.writes,
+				usesUpvals = instruction.usesUpvals,
+			}
+		end
+		block.source.statements = statements
+	end
+	return ir
+end
+
 return IR
