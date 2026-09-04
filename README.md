@@ -64,7 +64,7 @@ When `--out` is omitted, Fengetheus writes the result beside the input file usin
 | `Weak` | Apply a light obfuscation pipeline with lower transformation overhead. |
 | `Medium` | Apply multiple protection and transformation layers for a balanced profile. |
 | `Strong` | Apply the most comprehensive standard pipeline, including VM-based transformation, string encryption, anti-tamper logic, local proxying, constant-array transformations, numeric expression mutation, and function wrapping. |
-| `StrongVM2` | Use the Strong pipeline with randomized virtual-register layout, validated VM IR materialization, affine-encoded VM states, masked dispatcher bounds, and a bounded second lookup-indirection layer for encrypted strings. |
+| `StrongVM2` | Use the Strong pipeline with randomized virtual-register layout, validated VM IR materialization, affine-encoded VM states, bounded bounce trampolines, masked dispatcher bounds, and a bounded second lookup-indirection layer for encrypted strings. |
 | `StrongScalable` | Use a strong, more scalable profile for large scripts by omitting transformation layers that can produce excessive local-variable or nesting depth. |
 
 Obfuscation changes code structure and may affect size, performance, or compatibility. Test the generated file with the interpreter and runtime environment that will execute it. Obfuscation is not a substitute for access control, secret management, or a secure execution boundary.

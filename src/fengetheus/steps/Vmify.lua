@@ -21,6 +21,10 @@ Vmify.SettingsDescriptor = {
 		type = "boolean",
 		default = false,
 	},
+	DispatchBounce = {
+		type = "boolean",
+		default = false,
+	},
     DispatchMaskMagnitude = {
         type = "number",
         default = 4096,
@@ -34,6 +38,7 @@ function Vmify:init()
     -- pass the settings table a second time. Preserve those values here.
 	self.DispatchMask = self.DispatchMask == true
 	self.DispatchAffine = self.DispatchAffine == true
+	self.DispatchBounce = self.DispatchBounce == true
 	self.DispatchMaskMagnitude = self.DispatchMaskMagnitude or 4096
 end
 
@@ -42,6 +47,7 @@ function Vmify:apply(ast)
 	local compiler = Compiler:new({
         DispatchMask = self.DispatchMask,
         DispatchAffine = self.DispatchAffine,
+		DispatchBounce = self.DispatchBounce,
         DispatchMaskMagnitude = self.DispatchMaskMagnitude,
     });
 

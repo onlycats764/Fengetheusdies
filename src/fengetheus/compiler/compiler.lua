@@ -35,6 +35,7 @@ function Compiler:new(options)
         registerVars = {};
 		DispatchMask = options.DispatchMask == true;
 		DispatchAffine = options.DispatchAffine == true;
+		DispatchBounce = options.DispatchBounce == true;
 		DispatchMaskMagnitude = options.DispatchMaskMagnitude or 4096;
 		DispatchMultiplier = 1;
 		DispatchOffset = 0;
@@ -87,6 +88,83 @@ function Compiler:popRegisterUsageInfo()
     local info = table.remove(self.registerUsageStack);
     self.usedRegisters = info.usedRegisters;
     self.registers = info.registers;
+end
+
+-- Add one shared trampoline block for every encoded VM destination. This is a
+-- source-level equivalent of bytecode "bounce" edges: the instruction that
+-- chooses a destination no longer exposes the destination block directly,
+-- while the trampoline itself performs one simple state transition. Keeping
+-- one trampoline per target bounds the overhead and avoids an exponential
+-- graph expansion.
+function Compiler:addDispatchBounces()
+	if not self.DispatchBounce then
+		return
+	end
+
+	local originalBlocks = {}
+	for i, block in ipairs(self.blocks) do
+		originalBlocks[i] = block
+	end
+
+	local bounces = {}
+	local seen = {}
+
+	local function getBounce(target)
+		if bounces[target] then
+			return bounces[target]
+		end
+
+		local bounce = self:createBlock()
+		bounce.advanceToNextBlock = false
+		local scope = bounce.scope
+		scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar)
+		local transition = Ast.AssignmentStatement({
+			Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+		}, {
+			Ast.NumberExpression(self:encodeDispatchValue(target))
+		})
+		bounce.statements[1] = {
+			statement = transition,
+			writes = lookupify({ self.POS_REGISTER }),
+			reads = {},
+			usesUpvals = false,
+		}
+		bounces[target] = bounce.id
+		return bounce.id
+	end
+
+	local function rewrite(node)
+		if type(node) ~= "table" or seen[node] then
+			return
+		end
+		seen[node] = true
+
+		if node.kind == AstKind.NumberExpression and node.__dispatchTarget ~= nil then
+			local bounceId = getBounce(node.__dispatchTarget)
+			node.value = self:encodeDispatchValue(bounceId)
+			node.__dispatchTarget = nil
+		end
+
+		for key, value in pairs(node) do
+			if key ~= "scope" and key ~= "globalScope" and key ~= "parentScope" and
+				key ~= "variables" and key ~= "variablesLookup" and
+				key ~= "referenceCounts" and key ~= "variablesFromHigherScopes" and
+				key ~= "children" and key ~= "loop" and key ~= "__dispatchTarget" then
+				rewrite(value)
+			end
+		end
+	end
+
+	for _, block in ipairs(originalBlocks) do
+		for _, entry in ipairs(block.statements) do
+			rewrite(entry.statement)
+		end
+	end
+
+	-- The top-level closure entry is constructed after this pass. Point it at
+	-- the trampoline too, so the first VM iteration follows the same shape as
+	-- every later transition.
+	self.startBlockId = getBounce(self.startBlockId)
 end
 
 function Compiler:compile(ast)
@@ -219,7 +297,8 @@ function Compiler:compile(ast)
     createClosureScope:addReferenceToHigherScope(self.scope, self.upvaluesProxyFunctionVar)
     createClosureSubScope:addReferenceToHigherScope(createClosureScope, createClosureProxyObject);
 
-    self:compileTopNode(ast);
+	self:compileTopNode(ast);
+	self:addDispatchBounces();
 
 	-- Establish and validate the VM IR before constructing the final AST. This
 	-- catches malformed/duplicate control-flow blocks at the compiler boundary,

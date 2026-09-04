@@ -12,6 +12,7 @@ return {
 	DeadCodeElimination = require("fengetheus.steps.DeadCodeElimination");
 	RedundantOperationElimination = require("fengetheus.steps.RedundantOperationElimination");
 	ConditionCamouflage = require("fengetheus.steps.ConditionCamouflage");
+	ControlFlowMutation = require("fengetheus.steps.ControlFlowMutation");
 	EncryptStrings = require("fengetheus.steps.EncryptStrings");
 	ExtractGlobals = require("fengetheus.steps.ExtractGlobals");
 	LocalCaching = require("fengetheus.steps.LocalCaching");

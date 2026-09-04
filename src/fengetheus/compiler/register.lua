@@ -199,8 +199,10 @@ return function(Compiler)
     end
 
     function Compiler:blockIdExpression(id)
-        return Ast.NumberExpression(self:encodeDispatchValue(id));
-    end
+		local expression = Ast.NumberExpression(self:encodeDispatchValue(id));
+		expression.__dispatchTarget = id;
+		return expression;
+	end
 
     function Compiler:posAssignment(scope)
         scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);

@@ -344,9 +344,10 @@ local presets = {
 	},
 }
 
--- StrongVM2 keeps Strong's proven pipeline but enables the new VM dispatcher
--- masking layer. Build the step list independently so changing this preset
--- can never mutate Strong's configuration table by alias.
+-- StrongVM2 keeps Strong's proven pipeline but adds independent control-flow
+-- mutation, affine VM states, bounded bounce trampolines and a second lookup
+-- layer. Build the step list independently so changing this preset can never
+-- mutate Strong's configuration table by alias.
 local strongVm2Steps = {}
 local strongVm2ConstantArrays = 0
 for _, step in ipairs(presets.Strong.Steps) do
@@ -357,6 +358,7 @@ for _, step in ipairs(presets.Strong.Steps) do
 	if step.Name == "Vmify" then
 		settings.DispatchMask = true
 		settings.DispatchAffine = true
+		settings.DispatchBounce = true
 		settings.DispatchMaskMagnitude = 4096
 	elseif step.Name == "ConstantArray" then
 		strongVm2ConstantArrays = strongVm2ConstantArrays + 1
@@ -373,6 +375,15 @@ for _, step in ipairs(presets.Strong.Steps) do
 		Name = step.Name,
 		Settings = settings,
 	}
+	if step.Name == "OpaquePredicate" then
+		-- The mutation layer is exclusive to StrongVM2. It is kept after the
+		-- existing opaque pass so the two passes generate independent predicate
+		-- shapes without altering the behaviour of the standard presets.
+		strongVm2Steps[#strongVm2Steps + 1] = {
+			Name = "ControlFlowMutation",
+			Settings = { Threshold = 1, Layers = 2 },
+		}
+	end
 end
 
 presets.StrongVM2 = {

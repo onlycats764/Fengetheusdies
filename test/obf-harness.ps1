@@ -1,5 +1,5 @@
 param(
-    [string[]] $Preset = @('Minify', 'Balanced', 'Weak', 'Medium', 'Strong', 'StrongScalable'),
+    [string[]] $Preset = @('Minify', 'Balanced', 'Weak', 'Medium', 'Strong', 'StrongVM2', 'StrongScalable'),
     [string] $Lumora = '',
     [int] $TimeoutSeconds = 30,
     [int[]] $Seed = @(424242)

@@ -18,6 +18,29 @@ local enums = require("fengetheus.enums")
 local LuaVersion = enums.LuaVersion;
 local AstKind = Ast.AstKind;
 
+local function isNegativeZero(value)
+	return type(value) == "number" and value == 0 and 1 / value == -math.huge;
+end
+
+local function isNaN(value)
+	return type(value) == "number" and value ~= value;
+end
+
+-- Lua table keys consider -0 and +0 equal. Constant pooling must not do so:
+-- the sign bit is observable through operations such as 1 / value. Keep
+-- separate type buckets and use private sentinel keys for IEEE special values
+-- so a user string can never collide with the numeric lookup namespace.
+local function constantLookupKey(value)
+	if value == nil then return "__fengetheus_nil__" end
+	if isNegativeZero(value) then return "__fengetheus_negative_zero__" end
+	if isNaN(value) then return "__fengetheus_nan__" end
+	return value;
+end
+
+local function lookupBucket(lookup, value)
+	return lookup[type(value)] or lookup;
+end
+
 local ConstantArray = Step:extend();
 ConstantArray.Description = "This Step will Extract all Constants and put them into an Array at the beginning of the script";
 ConstantArray.Name = "Constant Array";
@@ -157,22 +180,26 @@ function ConstantArray:indexing(index, data)
 end
 
 function ConstantArray:getConstant(value, data)
-	if(self.lookup[value]) then
-		return self:indexing(self.lookup[value], data)
+	local bucket = lookupBucket(self.lookup, value);
+	local key = constantLookupKey(value);
+	if(bucket[key]) then
+		return self:indexing(bucket[key], data)
 	end
 	local idx = #self.constants + 1;
 	self.constants[idx] = value;
-	self.lookup[value] = idx;
+	bucket[key] = idx;
 	return self:indexing(idx, data);
 end
 
 function ConstantArray:addConstant(value)
-	if(self.lookup[value]) then
+	local bucket = lookupBucket(self.lookup, value);
+	local key = constantLookupKey(value);
+	if(bucket[key]) then
 		return
 	end
 	local idx = #self.constants + 1;
 	self.constants[idx] = value;
-	self.lookup[value] = idx;
+	bucket[key] = idx;
 end
 
 -- Preserve the identity of an AST node while replacing its contents. This is
@@ -657,7 +684,7 @@ function ConstantArray:apply(ast, pipeline)
 	});
 
 	self.constants = {};
-	self.lookup = {};
+	self.lookup = { number = {}, string = {}, boolean = {}, ["nil"] = {} };
 	self.replacements = {};
 	self.replacementScopeReferences = {};
 
@@ -693,9 +720,10 @@ function ConstantArray:apply(ast, pipeline)
 	-- Shuffle Array
 	if self.Shuffle then
 		self.constants = util.shuffle(self.constants);
-		self.lookup = {};
+		self.lookup = { number = {}, string = {}, boolean = {}, ["nil"] = {} };
 		for i, v in ipairs(self.constants) do
-			self.lookup[v] = i;
+			local bucket = lookupBucket(self.lookup, v);
+			bucket[constantLookupKey(v)] = i;
 		end
 	end
 
