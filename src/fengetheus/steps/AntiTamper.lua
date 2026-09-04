@@ -70,7 +70,34 @@ AntiTamper.SettingsDescriptor = {
 		default = true,
 		description = "Use debug library. (Recommended, however scripts will not work without debug library.)",
 	},
+	Stealth = {
+		type = "boolean",
+		default = false,
+		description = "Hide executor API lookups and use a non-literal failure loop.",
+	},
 }
+
+local function globalLookup(name)
+	local bytes = {}
+	for i = 1, #name do
+		bytes[i] = tostring(string.byte(name, i))
+	end
+	return "_G[string.char(" .. table.concat(bytes, ",") .. ")]"
+end
+
+local function runtimeGlobal(name, stealth)
+	if stealth then
+		return globalLookup(name)
+	end
+	return name
+end
+
+local function failureLoop(stealth, localName)
+	if stealth then
+		return "local " .. localName .. " = {}; while " .. localName .. " == " .. localName .. " do end;"
+	end
+	return "while true do end;"
+end
 
 local function generateSanityCheck()
 	local sanityCheckAnswers = {}
@@ -129,7 +156,7 @@ local function generateSanityCheck()
 	return table.concat(codeParts)
 end
 
-function AntiTamper:init(settings) end
+function AntiTamper:init() end
 
 function AntiTamper:apply(ast, pipeline)
 	if pipeline.PrettyPrint then
@@ -137,12 +164,22 @@ function AntiTamper:apply(ast, pipeline)
 		return ast
 	end
 	local code = generateSanityCheck()
+	local stealth = self.Stealth
+	local debugExpr = runtimeGlobal("debug", stealth)
+	local stringExpr = runtimeGlobal("string", stealth)
+	local tableExpr = runtimeGlobal("table", stealth)
+	local mathExpr = runtimeGlobal("math", stealth)
+	local coroutineExpr = runtimeGlobal("coroutine", stealth)
+	local functionExpr = function(name)
+		return runtimeGlobal(name, stealth)
+	end
+	local haltDetected = failureLoop(stealth, "haltState")
 	if self.UseDebug then
 		local string = RandomStrings.randomString()
 		code = code
 			.. [[
             -- Anti Beautify
-			local sethook = debug and debug.sethook or function() end;
+			local sethook = ]] .. debugExpr .. [[ and ]] .. debugExpr .. [[.sethook or function() end;
 			local allowedLine = nil;
 			local called = 0;
 			sethook(function(s, line)
@@ -169,14 +206,14 @@ function AntiTamper:apply(ast, pipeline)
             end
 
             -- Anti Function Hook
-            local funcs = {pcall, string.char, debug.getinfo, string.dump}
+			local funcs = {pcall, ]] .. stringExpr .. [[.char, ]] .. debugExpr .. [[.getinfo, string.dump}
             for i = 1, #funcs do
-                local what = debug.getinfo(funcs[i]).what
+				local what = ]] .. debugExpr .. [[.getinfo(funcs[i]).what
                 if what ~= "C" and what ~= "J" then
                     valid = false;
                 end
 
-                if debug.getupvalue(funcs[i], 1) then
+				if ]] .. debugExpr .. [[.getupvalue(funcs[i], 1) then
                     valid = false;
                 end
 
@@ -187,8 +224,8 @@ function AntiTamper:apply(ast, pipeline)
 
             -- Anti Beautify
             local function getTraceback()
-                local str = (function(arg)
-                    return debug.traceback(arg)
+				local str = (function(arg)
+					return ]] .. debugExpr .. [[.traceback(arg)
                 end)("]] .. string .. [[");
                 return str;
             end
@@ -224,7 +261,7 @@ function AntiTamper:apply(ast, pipeline)
     -- hooking/tampering are kept, so the layer cannot false-positive on
     -- engine version drift.
     -- ========================================================================
-    local gmatch = string.gmatch;
+    local gmatch = ]] .. stringExpr .. [[.gmatch;
 
     -- Hard halt: spin in an infinite `while true do end` loop. This wedges
     -- the script (and any dump/scraper bot driving it) forever instead of
@@ -232,7 +269,7 @@ function AntiTamper:apply(ast, pipeline)
     -- A bot that tries to dump/hook the payload gets trapped in the loop and
     -- never reaches the protected code below.
     local function detected()
-        while true do end;
+        ]] .. haltDetected .. [[
     end
 
     -- check(value): on a falsy value, flag invalid and stop. Wrapped in
@@ -267,27 +304,27 @@ function AntiTamper:apply(ast, pipeline)
         rawget = rawget, rawset = rawset, select = select,
         setmetatable = setmetatable, tonumber = tonumber, tostring = tostring,
         type = type, xpcall = xpcall,
-        stringByte = string.byte, stringChar = string.char,
-        stringSub = string.sub, stringFind = string.find,
-        stringGsub = string.gsub, stringFormat = string.format,
-        stringLen = string.len, stringRep = string.rep,
-        stringReverse = string.reverse,
-        tableInsert = table.insert, tableRemove = table.remove,
-        tableConcat = table.concat, tableSort = table.sort,
-        mathFloor = math.floor, mathAbs = math.abs,
-        mathMin = math.min, mathMax = math.max,
-        mathHuge = math.huge, mathRandom = math.random,
-        coroutineCreate = coroutine.create, coroutineResume = coroutine.resume,
-        coroutineYield = coroutine.yield, coroutineStatus = coroutine.status,
-        coroutineClose = coroutine.close, coroutineRunning = coroutine.running,
-        coroutineWrap = coroutine.wrap,
-        debugInfo = debug and debug.info, debugTraceback = debug and debug.traceback,
-        debugGetInfo = debug and debug.getinfo,
-        loadstring = loadstring,
-        iscclosure = iscclosure, islclosure = islclosure,
-        newcclosure = newcclosure, clonefunction = clonefunction,
-        isfunctionhooked = isfunctionhooked, checkcaller = checkcaller,
-        getfenv = getfenv, setfenv = setfenv,
+        stringByte = ]] .. stringExpr .. [[.byte, stringChar = ]] .. stringExpr .. [[.char,
+        stringSub = ]] .. stringExpr .. [[.sub, stringFind = ]] .. stringExpr .. [[.find,
+        stringGsub = ]] .. stringExpr .. [[.gsub, stringFormat = ]] .. stringExpr .. [[.format,
+        stringLen = ]] .. stringExpr .. [[.len, stringRep = ]] .. stringExpr .. [[.rep,
+        stringReverse = ]] .. stringExpr .. [[.reverse,
+        tableInsert = ]] .. tableExpr .. [[.insert, tableRemove = ]] .. tableExpr .. [[.remove,
+        tableConcat = ]] .. tableExpr .. [[.concat, tableSort = ]] .. tableExpr .. [[.sort,
+        mathFloor = ]] .. mathExpr .. [[.floor, mathAbs = ]] .. mathExpr .. [[.abs,
+        mathMin = ]] .. mathExpr .. [[.min, mathMax = ]] .. mathExpr .. [[.max,
+        mathHuge = ]] .. mathExpr .. [[.huge, mathRandom = ]] .. mathExpr .. [[.random,
+        coroutineCreate = ]] .. coroutineExpr .. [[.create, coroutineResume = ]] .. coroutineExpr .. [[.resume,
+        coroutineYield = ]] .. coroutineExpr .. [[.yield, coroutineStatus = ]] .. coroutineExpr .. [[.status,
+        coroutineClose = ]] .. coroutineExpr .. [[.close, coroutineRunning = ]] .. coroutineExpr .. [[.running,
+        coroutineWrap = ]] .. coroutineExpr .. [[.wrap,
+        debugInfo = ]] .. debugExpr .. [[ and ]] .. debugExpr .. [[.info, debugTraceback = ]] .. debugExpr .. [[ and ]] .. debugExpr .. [[.traceback,
+        debugGetInfo = ]] .. debugExpr .. [[ and ]] .. debugExpr .. [[.getinfo,
+        loadstring = ]] .. functionExpr("loadstring") .. [[,
+        iscclosure = ]] .. functionExpr("iscclosure") .. [[, islclosure = ]] .. functionExpr("islclosure") .. [[,
+        newcclosure = ]] .. functionExpr("newcclosure") .. [[, clonefunction = ]] .. functionExpr("clonefunction") .. [[,
+        isfunctionhooked = ]] .. functionExpr("isfunctionhooked") .. [[, checkcaller = ]] .. functionExpr("checkcaller") .. [[,
+        getfenv = ]] .. functionExpr("getfenv") .. [[, setfenv = ]] .. functionExpr("setfenv") .. [[,
     };
 
     -- C-closure observation. The original intent was to detect a native builtin
@@ -557,13 +594,13 @@ end
 
     -- Anti Function Arg Hook
     local obj = setmetatable({}, {
-        __tostring = function() while true do end; end,
+        __tostring = function() ]] .. failureLoop(stealth, "argHaltState") .. [[ end,
     });
     obj[math.random(1, 100)] = obj;
     (function() end)(obj);
 
     if not valid then
-        while true do end;
+        ]] .. failureLoop(stealth, "finalHaltState") .. [[
     end
     ]]
 

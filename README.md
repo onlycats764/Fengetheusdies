@@ -10,7 +10,7 @@ Fengetheus is a local command-line Lua obfuscator built around the Prometheus co
 
 - Local file-to-file obfuscation with no remote service required.
 
-- Presets for different transformation levels: `Minify`, `Weak`, `Medium`, `Strong`, and `StrongScalable`.
+- Presets for different transformation levels: `Minify`, `Weak`, `WeakStealth`, `Medium`, `Strong`, and `StrongScalable`.
 
 - Lua 5.1 and Luau target selection.
 
@@ -62,6 +62,7 @@ When `--out` is omitted, Fengetheus writes the result beside the input file usin
 | --- | --- |
 | `Minify` | Reduce formatting and output size without adding the heavier obfuscation layers. |
 | `Weak` | Apply a light VM obfuscation pipeline with integrity checks and lower transformation overhead. |
+| `WeakStealth` | Weak-equivalent runtime cost with indirect integrity-API resolution and a camouflaged tamper-failure path. |
 | `Medium` | Apply multiple protection and transformation layers for a balanced profile. |
 | `Strong` | Apply the most comprehensive standard pipeline, including VM-based transformation, string encryption, anti-tamper logic, local proxying, constant-array transformations, numeric expression mutation, and function wrapping. |
 | `StrongVM2` | Use the Strong pipeline with randomized virtual-register layout, validated VM IR materialization, nonlinear bucket-encoded VM states, bounded multi-entry bounce trampolines, masked dispatcher bounds, and a bounded second lookup-indirection layer for encrypted strings. |

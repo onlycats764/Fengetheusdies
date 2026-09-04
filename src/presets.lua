@@ -117,6 +117,39 @@ local presets = {
 		},
 	},
 
+	-- WeakStealth keeps Weak's low runtime cost but makes the integrity layer
+	-- less recognizable in a static scan. It is deliberately a separate preset
+	-- so existing Weak output remains reproducible and backwards compatible.
+	["WeakStealth"] = {
+		LuaVersion = "Lua51",
+		VarNamePrefix = "",
+		NameGenerator = "MangledShuffled",
+		PrettyPrint = false,
+		Seed = 0,
+		Steps = {
+			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "DeadCodeElimination", Settings = {} },
+			{ Name = "RedundantOperationElimination", Settings = {} },
+			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "ExtractGlobals", Settings = {} },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
+			{ Name = "Vmify", Settings = {} },
+			{ Name = "AntiTamper", Settings = { UseDebug = false, Stealth = true } },
+			{
+				Name = "ConstantArray",
+				Settings = {
+					Threshold = 1,
+					StringsOnly = true,
+					Shuffle = true,
+					Rotate = true,
+					LocalWrapperThreshold = 0,
+				},
+			},
+			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
+			{ Name = "WrapInFunction", Settings = {} },
+		},
+	},
+
 	-- This is here for the tests.lua file.
 	-- It helps isolate any problems with the Vmify step.
 	-- It is not recommended to use this preset for obfuscation.
