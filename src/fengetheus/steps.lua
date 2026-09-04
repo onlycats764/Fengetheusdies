@@ -26,4 +26,5 @@ return {
 	WatermarkCheck = require("fengetheus.steps.WatermarkCheck");
 	WrapInFunction = require("fengetheus.steps.WrapInFunction");
 	JunkCode = require("fengetheus.steps.JunkCode");
+	TamperObfuscator = require("fengetheus.steps.TamperObfuscator");
 }
