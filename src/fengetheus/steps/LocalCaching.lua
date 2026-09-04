@@ -273,6 +273,51 @@ local function isBlocked(mutated, rootName, segs)
 	return false
 end
 
+-- Return roots whose table identity is locally established by a literal. A
+-- generic variable may point to a table with an __index metamethod, or to a
+-- value that another call changes between two reads; caching either case can
+-- change observable Lua behaviour. This intentionally accepts only the
+-- strongest cheap proof available in the AST.
+local function collectLiteralTableRoots(statements, scope)
+	local roots = {}
+	for _, stmt in ipairs(statements) do
+		if stmt.kind == AstKind.LocalVariableDeclaration then
+			for i, id in ipairs(stmt.ids or {}) do
+				local expr = (stmt.expressions or {})[i]
+				if expr and expr.kind == AstKind.TableConstructorExpression then
+					roots[scope:getVariableName(id)] = true
+				end
+			end
+		end
+	end
+	return roots
+end
+
+-- A call can mutate a table or invoke a metamethod. Walk each statement
+-- without using visitast (which would cross into child blocks); a candidate is
+-- rejected only when a call lies between its first and last read. Calls after
+-- the last read cannot affect the cached value. False positives only reduce
+-- the optimization; false negatives would risk changing program semantics.
+local function containsCall(value, seen)
+	if type(value) ~= "table" then return false end
+	seen = seen or {}
+	if seen[value] then return false end
+	seen[value] = true
+	if value.kind == AstKind.FunctionCallExpression
+		or value.kind == AstKind.PassSelfFunctionCallExpression
+		or value.kind == AstKind.FunctionCallStatement
+		or value.kind == AstKind.PassSelfFunctionCallStatement then
+		return true
+	end
+	for key, child in pairs(value) do
+		if key ~= "scope" and key ~= "parentScope" and key ~= "children"
+			and containsCall(child, seen) then
+			return true
+		end
+	end
+	return false
+end
+
 -- A "read site" of a prefix. Two kinds:
 --   { mode = "base", parent = parentNode }
 --       The prefix is parentNode.base (parentNode is an IndexExpression or
@@ -305,7 +350,7 @@ local function collectChainPrefixes(statements)
 		local entry = found[key]
 		if not entry then
 			entry = { rootName = rootName, segments = segs, rootNode = rootNode,
-				sites = {}, count = 0, firstStmtIndex = nil }
+				sites = {}, count = 0, firstStmtIndex = nil, lastStmtIndex = nil }
 			found[key] = entry
 		end
 		return entry, key
@@ -365,6 +410,9 @@ local function collectChainPrefixes(statements)
 				if entry.firstStmtIndex == nil or stmtIndex < entry.firstStmtIndex then
 					entry.firstStmtIndex = stmtIndex
 				end
+				if entry.lastStmtIndex == nil or stmtIndex > entry.lastStmtIndex then
+					entry.lastStmtIndex = stmtIndex
+				end
 			end
 
 			if not isLHSTarget then
@@ -376,6 +424,9 @@ local function collectChainPrefixes(statements)
 				entry.count = entry.count + 1
 				if entry.firstStmtIndex == nil or stmtIndex < entry.firstStmtIndex then
 					entry.firstStmtIndex = stmtIndex
+				end
+				if entry.lastStmtIndex == nil or stmtIndex > entry.lastStmtIndex then
+					entry.lastStmtIndex = stmtIndex
 				end
 			end
 			return
@@ -498,13 +549,28 @@ function LocalCaching:apply(ast)
 
 		local mutated = collectMutations(statements)
 		local found = collectChainPrefixes(statements)
+		local literalRoots = collectLiteralTableRoots(statements, scope)
+		local callStatements = {}
+		for index, statement in ipairs(statements) do
+			callStatements[index] = containsCall(statement)
+		end
 
 		-- Select eligible prefixes.
 		local toCache = {} -- list of entries
 		for _, entry in pairs(found) do
 			if #entry.segments >= minDepth and entry.count >= minOcc
 				and #entry.sites >= minOcc then
-				if chance >= 1 or math.random() <= chance then
+				-- Do not memoize dynamic roots or anything in a block where a call
+				-- could alter the table or dispatch through __index.
+				local callBetweenReads = false
+				for i = entry.firstStmtIndex or 1, entry.lastStmtIndex or #statements do
+					if callStatements[i] then
+						callBetweenReads = true
+						break
+					end
+				end
+				if literalRoots[entry.rootName] and not callBetweenReads
+					and (chance >= 1 or math.random() <= chance) then
 					local blocked = isBlocked(mutated, entry.rootName, entry.segments)
 					if not blocked then
 						toCache[#toCache + 1] = entry

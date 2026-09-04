@@ -9,7 +9,7 @@ LUMORA="${LUMORA:-/workspace/Lumora/bin/lumora}"
 LUA_BIN="${LUA_BIN:-lua5.1}"
 export LUA_BIN
 
-CASES=(arithmetic closures fibonacci strings tables varargs sieve tween roblox_gui vm_control_flow repeated_strings numeric_only)
+CASES=(arithmetic closures fibonacci strings tables varargs sieve tween roblox_gui vm_control_flow repeated_strings numeric_only optimizer_semantics static_chain)
 PRESETS=("$@")
 if [ ${#PRESETS[@]} -eq 0 ]; then
   PRESETS=(Minify Balanced Weak Medium Strong StrongScalable)

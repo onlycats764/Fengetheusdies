@@ -118,6 +118,28 @@ local function isOne(expr)
 	return isConstant(expr) and type(expr.value) == "number" and expr.value == 1
 end
 
+-- An algebraic identity is only valid when the dynamic operand is known to
+-- participate in numeric arithmetic. Lua does not coerce arbitrary values for
+-- `+`, `-`, `*`, etc.; replacing `value + 0` with `value` can turn a runtime
+-- error into a successful return when `value` is a table or string. Keep this
+-- deliberately conservative: literals and arithmetic trees made entirely of
+-- definitely-number expressions are enough for the useful cases, while local
+-- variables and indexing remain unknown.
+local function isDefinitelyNumber(expr)
+	if not expr then return false end
+	local k = expr.kind
+	if k == AstKind.NumberExpression then return true end
+	if k == AstKind.NegateExpression then
+		return isDefinitelyNumber(expr.rhs)
+	end
+	if k == AstKind.AddExpression or k == AstKind.SubExpression
+		or k == AstKind.MulExpression or k == AstKind.DivExpression
+		or k == AstKind.ModExpression or k == AstKind.PowExpression then
+		return isDefinitelyNumber(expr.lhs) and isDefinitelyNumber(expr.rhs)
+	end
+	return false
+end
+
 -- Whether a constant is falsy in Lua (false or nil).
 local function isFalsyConstant(expr)
 	if not isConstant(expr) then return false end
@@ -163,7 +185,6 @@ local function isSideEffectFree(expr)
 		or k == AstKind.BooleanExpression
 		or k == AstKind.NilExpression
 		or k == AstKind.VariableExpression
-		or k == AstKind.IndexExpression
 		or k == AstKind.FunctionLiteralExpression
 	then
 		return true
@@ -203,17 +224,17 @@ function ConstantFolding:foldBinary(expr)
 	if self.AlgebraicIdentities then
 		if k == AstKind.AddExpression then
 			-- x + 0 -> x ; 0 + x -> x
-			if isZero(rhs) then return lhs end
-			if isZero(lhs) then return rhs end
+			if isZero(rhs) and isDefinitelyNumber(lhs) then return lhs end
+			if isZero(lhs) and isDefinitelyNumber(rhs) then return rhs end
 		elseif k == AstKind.SubExpression then
 			-- x - 0 -> x
-			if isZero(rhs) then return lhs end
+			if isZero(rhs) and isDefinitelyNumber(lhs) then return lhs end
 			-- 0 - x -> -x  (only if x is side-effect-free; -x is a unary negate)
 			-- Skip: marginal and risks changing semantics for string/other.
 		elseif k == AstKind.MulExpression then
 			-- x * 1 -> x ; 1 * x -> x
-			if isOne(rhs) then return lhs end
-			if isOne(lhs) then return rhs end
+			if isOne(rhs) and isDefinitelyNumber(lhs) then return lhs end
+			if isOne(lhs) and isDefinitelyNumber(rhs) then return rhs end
 			-- NOTE: `x * 0` -> `0` and `0 * x` -> `0` are intentionally NOT
 			-- folded. In IEEE-754 (Lua 5.1 and Luau alike) the sign of the
 			-- zero result depends on the sign of the non-zero operand:
@@ -224,13 +245,16 @@ function ConstantFolding:foldBinary(expr)
 			-- the isNegativeZero guard in NumbersToExpressions.
 		elseif k == AstKind.PowExpression then
 			-- x ^ 1 -> x
-			if isOne(rhs) then return lhs end
-			-- x ^ 0 -> 1  (only if x is side-effect-free; anything^0 == 1 in Lua, even 0^0 == 1)
-			if isZero(rhs) and isSideEffectFree(lhs) then
+			if isOne(rhs) and isDefinitelyNumber(lhs) then return lhs end
+			-- x ^ 0 -> 1 only for a definitely numeric x; arbitrary Lua values
+			-- can raise a type error before the exponent identity applies.
+			if isZero(rhs) and isDefinitelyNumber(lhs) then
 				return Ast.NumberExpression(1)
 			end
-			-- 1 ^ x -> 1  (only if x is side-effect-free; 1^anything == 1)
-			if isOne(lhs) and isSideEffectFree(rhs) then
+			-- 1 ^ x -> 1 only when x is known numeric. Lua does not coerce a
+			-- string/table exponent, so dropping the operation otherwise hides
+			-- a runtime type error.
+			if isOne(lhs) and isDefinitelyNumber(rhs) then
 				return Ast.NumberExpression(1)
 			end
 		end
@@ -295,7 +319,7 @@ function ConstantFolding:foldIfElse(expr)
 		if expr.elseifs then
 			for _, elif in ipairs(expr.elseifs) do
 				if isTruthyConstant(elif.condition) then
-					return elif.value
+					return elif.true_value
 				end
 				if isFalsyConstant(elif.condition) then
 					-- keep scanning
