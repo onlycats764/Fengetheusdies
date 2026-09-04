@@ -193,7 +193,20 @@ return function(Compiler)
 
     function Compiler:encodeDispatchValue(value)
         if self.DispatchAffine then
-            return value * self.DispatchMultiplier + self.DispatchOffset;
+            local encoded = value * self.DispatchMultiplier + self.DispatchOffset;
+            if self.DispatchNonlinear then
+                -- The stride is at least four times the noise magnitude, so
+                -- adjacent integer inputs remain strictly ordered. This lets
+                -- the emitter keep using a binary threshold tree while each
+                -- actual state and threshold has a distinct bucket offset.
+                local noise = self.DispatchNoise[value];
+                if noise == nil then
+                    noise = math.random(-self.DispatchNoiseMagnitude, self.DispatchNoiseMagnitude);
+                    self.DispatchNoise[value] = noise;
+                end
+                encoded = encoded + noise;
+            end
+            return encoded;
         end
         return value;
     end

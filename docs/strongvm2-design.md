@@ -11,7 +11,7 @@ cambiar el resultado observable del programa original.
 | --- | --- | --- |
 | Virtualización | `Vmify` compila el AST a bloques e instrucciones de una VM propia | Conserva la semántica de Luau porque parte del compilador interno, no de texto reescrito |
 | Registros virtuales | El layout de registros se baraja con una semilla por compilación | La asignación se mantiene consistente dentro de cada chunk |
-| Estados afines | Los estados del dispatcher se codifican como `a * state + b`, con multiplicador impar | El decodificador usa la misma clave; los estados no aparecen como IDs lineales |
+| Estados por buckets | Los estados del dispatcher usan un stride positivo y un ruido pseudoaleatorio por valor | El mapa sigue siendo estrictamente monotónico para conservar el árbol binario, pero no se invierte con una sola fórmula afín |
 | Máscara del dispatcher | Los límites y posiciones llevan una máscara aleatoria acotada | Evita patrones constantes simples sin introducir aritmética no acotada |
 | Trampolines de dispatch | Cada destino recibe un bloque de rebote que vuelve a escribir `pos` antes de continuar | Se generan una vez por destino y se reutilizan; no hay bucles extra ni llamadas de usuario |
 | Mutación de condiciones | `ControlFlowMutation` envuelve condiciones en capas equivalentes con predicados privados | Solo usa comparaciones numéricas locales y no evalúa dos veces la expresión original |

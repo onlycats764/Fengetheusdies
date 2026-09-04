@@ -36,9 +36,12 @@ function Compiler:new(options)
 		DispatchMask = options.DispatchMask == true;
 		DispatchAffine = options.DispatchAffine == true;
 		DispatchBounce = options.DispatchBounce == true;
+		DispatchNonlinear = options.DispatchNonlinear == true;
 		DispatchMaskMagnitude = options.DispatchMaskMagnitude or 4096;
+		DispatchNoiseMagnitude = options.DispatchNoiseMagnitude or 7;
 		DispatchMultiplier = 1;
 		DispatchOffset = 0;
+		DispatchNoise = {};
 
         VAR_REGISTER = newproxy(false);
         RETURN_ALL = newproxy(false);
@@ -181,14 +184,24 @@ function Compiler:compile(ast)
 
 	self.upvalVars = {};
 	self.registerUsageStack = {};
+	self.DispatchNoise = {};
 	if self.DispatchAffine then
 		-- Keep the multiplier positive so the binary dispatch tree remains
 		-- ordered. Block IDs are 24-bit integers, so these products are exact.
-		self.DispatchMultiplier = math.random(3, 15) * 2 + 1;
+		-- Nonlinear bucket encoding uses a larger stride than its per-value
+		-- noise, preserving order while preventing a simple affine inversion.
+		if self.DispatchNonlinear then
+			local noise = math.max(1, math.floor(self.DispatchNoiseMagnitude or 7));
+			self.DispatchNoiseMagnitude = noise;
+			self.DispatchMultiplier = math.random(noise * 4 + 1, noise * 8 + 1);
+		else
+			self.DispatchMultiplier = math.random(3, 15) * 2 + 1;
+		end
 		self.DispatchOffset = math.random(-2^20, 2^20);
 	else
 		self.DispatchMultiplier = 1;
 		self.DispatchOffset = 0;
+		self.DispatchNoiseMagnitude = 0;
 	end
 
     self.upvalsProxyLenReturn = math.random(-2^22, 2^22);

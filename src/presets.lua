@@ -345,7 +345,7 @@ local presets = {
 }
 
 -- StrongVM2 keeps Strong's proven pipeline but adds independent control-flow
--- mutation, affine VM states, bounded bounce trampolines and a second lookup
+-- mutation, nonlinear bucket-encoded VM states, bounded bounce trampolines and a second lookup
 -- layer. Build the step list independently so changing this preset can never
 -- mutate Strong's configuration table by alias.
 local strongVm2Steps = {}
@@ -359,7 +359,9 @@ for _, step in ipairs(presets.Strong.Steps) do
 		settings.DispatchMask = true
 		settings.DispatchAffine = true
 		settings.DispatchBounce = true
+		settings.DispatchNonlinear = true
 		settings.DispatchMaskMagnitude = 4096
+		settings.DispatchNoiseMagnitude = 7
 	elseif step.Name == "ConstantArray" then
 		strongVm2ConstantArrays = strongVm2ConstantArrays + 1
 		-- Add a bounded second layer of local lookup indirection only to the

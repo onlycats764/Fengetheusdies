@@ -25,12 +25,22 @@ Vmify.SettingsDescriptor = {
 		type = "boolean",
 		default = false,
 	},
+	DispatchNonlinear = {
+		type = "boolean",
+		default = false,
+	},
     DispatchMaskMagnitude = {
         type = "number",
         default = 4096,
         min = 1,
         max = 1000000,
     },
+	DispatchNoiseMagnitude = {
+		type = "number",
+		default = 7,
+		min = 1,
+		max = 1024,
+	},
 }
 
 function Vmify:init()
@@ -39,7 +49,9 @@ function Vmify:init()
 	self.DispatchMask = self.DispatchMask == true
 	self.DispatchAffine = self.DispatchAffine == true
 	self.DispatchBounce = self.DispatchBounce == true
+	self.DispatchNonlinear = self.DispatchNonlinear == true
 	self.DispatchMaskMagnitude = self.DispatchMaskMagnitude or 4096
+	self.DispatchNoiseMagnitude = self.DispatchNoiseMagnitude or 7
 end
 
 function Vmify:apply(ast)
@@ -48,7 +60,9 @@ function Vmify:apply(ast)
         DispatchMask = self.DispatchMask,
         DispatchAffine = self.DispatchAffine,
 		DispatchBounce = self.DispatchBounce,
+		DispatchNonlinear = self.DispatchNonlinear,
         DispatchMaskMagnitude = self.DispatchMaskMagnitude,
+		DispatchNoiseMagnitude = self.DispatchNoiseMagnitude,
     });
 
     -- Compile the Script into a bytecode vm
