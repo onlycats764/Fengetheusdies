@@ -25,9 +25,11 @@ Vmify.SettingsDescriptor = {
     },
 }
 
-function Vmify:init(config)
-    self.DispatchMask = config and config.DispatchMask == true or false
-    self.DispatchMaskMagnitude = (config and config.DispatchMaskMagnitude) or 4096
+function Vmify:init()
+    -- Step:new() assigns validated settings before calling init() and does not
+    -- pass the settings table a second time. Preserve those values here.
+    self.DispatchMask = self.DispatchMask == true
+    self.DispatchMaskMagnitude = self.DispatchMaskMagnitude or 4096
 end
 
 function Vmify:apply(ast)
