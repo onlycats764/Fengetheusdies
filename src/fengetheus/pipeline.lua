@@ -16,14 +16,11 @@ local NameGenerators = require("fengetheus.namegenerators");
 local Steps = require("fengetheus.steps");
 local LuaVersion = Enums.LuaVersion;
 
--- On Windows, os.clock can be used. On other systems, os.time must be used for benchmarking.
-local isWindows = package and package.config and type(package.config) == "string" and package.config:sub(1,1) == "\\";
 local function gettime()
-	if isWindows then
-		return os.clock();
-	else
-		return os.time();
-	end
+	-- os.time() has one-second resolution on POSIX and made every short
+	-- pipeline appear to take exactly 0.00s. os.clock() is portable and has
+	-- the resolution needed to find pathological transformations.
+	return (os and type(os.clock) == "function" and os.clock()) or os.time();
 end
 
 local Pipeline = {
@@ -158,6 +155,9 @@ end
 function Pipeline:apply(code, filename)
 	local startTime = gettime();
 	filename = filename or "Anonymous Script";
+	if type(code) ~= "string" then
+		logger:error("Pipeline:apply expects source code as a string");
+	end
 	logger:info(string.format("Applying Obfuscation Pipeline to %s ...", filename));
 
 	-- Seed the Random Generator
@@ -243,7 +243,8 @@ function Pipeline:apply(code, filename)
 	local timeDiff = gettime() - startTime;
 	logger:info(string.format("Obfuscation Done in %.2f seconds", timeDiff));
 
-	logger:info(string.format("Generated Code size is %.2f%% of the Source Code size", (string.len(code) / sourceLen)*100))
+	local sizePercent = sourceLen > 0 and (string.len(code) / sourceLen) * 100 or 0;
+	logger:info(string.format("Generated Code size is %.2f%% of the Source Code size", sizePercent))
 
 	return code;
 end

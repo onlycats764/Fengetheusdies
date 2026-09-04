@@ -162,7 +162,7 @@ end
 
 local function run_cli()
 	-- CLI
-	local config, sourceFile, outFile, luaVersion, prettyPrint
+	local config, sourceFile, outFile, luaVersion, prettyPrint, seed
 	local selectedPresetName
 
 	Fengetheus.colors.enabled = true
@@ -178,6 +178,9 @@ local function run_cli()
 				end
 
 				i = i + 1
+				if not arg[i] or arg[i]:sub(1, 1) == "-" then
+					Fengetheus.Logger:error("The preset option requires a name")
+				end
 				local preset = Fengetheus.Presets[arg[i]]
 				if not preset then
 					Fengetheus.Logger:error(string.format('A Preset with the name "%s" was not found!', tostring(arg[i])))
@@ -187,6 +190,9 @@ local function run_cli()
 				config = preset
 			elseif curr == "--config" or curr == "--c" then
 				i = i + 1
+				if not arg[i] or arg[i]:sub(1, 1) == "-" then
+					Fengetheus.Logger:error("The config option requires a file path")
+				end
 				local filename = tostring(arg[i])
 				if not file_exists(filename) then
 					Fengetheus.Logger:error(string.format('The config file "%s" was not found!', filename))
@@ -202,6 +208,9 @@ local function run_cli()
 				selectedPresetName = nil
 			elseif curr == "--out" or curr == "--o" then
 				i = i + 1
+				if not arg[i] or arg[i]:sub(1, 1) == "-" then
+					Fengetheus.Logger:error("The output option requires a file path")
+				end
 				if outFile then
 					Fengetheus.Logger:warn("The output file was specified multiple times!")
 				end
@@ -216,11 +225,13 @@ local function run_cli()
 				prettyPrint = true
 		elseif curr == "--seed" then
 			i = i + 1
-			local sval = tonumber(arg[i])
-			if not sval then
-				Fengetheus.Logger:error(string.format('The seed "%s" is not a valid number', tostring(arg[i])))
-			end
-			seed = sval
+				local sval = tonumber(arg[i])
+				-- 0 deliberately means non-deterministic entropy (the pipeline's
+				-- documented default); positive integers select a reproducible build.
+				if not sval or sval ~= math.floor(sval) or sval < 0 then
+					Fengetheus.Logger:error(string.format('The seed "%s" is not a valid number', tostring(arg[i])))
+				end
+				seed = sval
 			elseif curr == "--saveerrors" then
 				-- Override error callback
 				Fengetheus.Logger.errorCallback = function(...)
@@ -257,7 +268,15 @@ local function run_cli()
 		config = Fengetheus.Presets.Minify
 	end
 
-	-- Add Option to override Lua Version
+	-- Copy the selected config before applying CLI overrides. Presets are shared
+	-- tables; mutating one here makes embedded callers observe stale CLI state.
+	local effectiveConfig = {}
+	for key, value in pairs(config) do
+		effectiveConfig[key] = value
+	end
+	config = effectiveConfig
+
+	-- Add options to override Lua Version and formatting without mutating a preset.
 	config.LuaVersion = luaVersion or config.LuaVersion
 	config.PrettyPrint = prettyPrint ~= nil and prettyPrint or config.PrettyPrint
 	if seed ~= nil then
@@ -283,9 +302,15 @@ local function run_cli()
 	Fengetheus.Logger:info(string.format('Writing output to "%s"', outFile))
 
 	-- Write Output
-	local handle = io.open(outFile, "w")
-	handle:write(out)
+	local handle, openError = io.open(outFile, "w")
+	if not handle then
+		Fengetheus.Logger:error(string.format('Could not open output file "%s": %s', outFile, tostring(openError)))
+	end
+	local writeOk, writeError = handle:write(out)
 	handle:close()
+	if not writeOk then
+		Fengetheus.Logger:error(string.format('Could not write output file "%s": %s', outFile, tostring(writeError)))
+	end
 end
 
 local ok, err = xpcall(run_cli, function(e)

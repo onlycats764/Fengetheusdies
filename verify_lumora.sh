@@ -10,8 +10,8 @@ if [[ "${3:-}" == "--no-roblox" ]]; then
 else
 	LUMORA_FLAGS=""
 fi
-ROOT="/workspace/Fengetheus"
-LUMORA="/workspace/Lumora/bin/lumora"
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+LUMORA="${LUMORA:-$(CDPATH= cd -- "$ROOT/../Lumora" 2>/dev/null && pwd)/bin/lumora}"
 LUA_BIN="lua5.1"
 
 TMP=$(mktemp -d)

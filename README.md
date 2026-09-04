@@ -107,6 +107,19 @@ LUA_BIN=lua5.3 test/cli-smoke.sh
 
 Additional Lua cases and invariant or trace checks are available under [`test/`](./test).
 
+On Windows, the equivalent Lumora-backed regression harness is available as
+`test/obf-harness.ps1`. It discovers the locally built Lumora executable under
+the sibling `work/Lumora` checkout; pass `-Lumora` to select another binary:
+
+```
+powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced -Lumora C:\path\to\lumora.exe
+```
+
+The harness compares Lumora's structured result (`ok`, `kind`, and `stdout`)
+for every case and preset, so file paths and generated line numbers do not
+create false failures. Use a timeout when validating protection-heavy presets:
+anti-tamper and anti-sandbox failure paths intentionally do not return.
+
 ## Project layout
 
 ```
