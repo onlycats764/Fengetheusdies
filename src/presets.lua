@@ -356,6 +356,7 @@ for _, step in ipairs(presets.Strong.Steps) do
 	end
 	if step.Name == "Vmify" then
 		settings.DispatchMask = true
+		settings.DispatchAffine = true
 		settings.DispatchMaskMagnitude = 4096
 	elseif step.Name == "ConstantArray" then
 		strongVm2ConstantArrays = strongVm2ConstantArrays + 1
