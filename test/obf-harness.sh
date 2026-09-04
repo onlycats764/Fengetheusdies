@@ -12,7 +12,7 @@ export LUA_BIN
 CASES=(arithmetic closures fibonacci strings tables varargs sieve tween roblox_gui vm_control_flow repeated_strings numeric_only optimizer_semantics static_chain long_string)
 PRESETS=("$@")
 if [ ${#PRESETS[@]} -eq 0 ]; then
-  PRESETS=(Minify Balanced Weak WeakStealth Medium Strong StrongVM2 StrongScalable)
+  PRESETS=(Minify Balanced Phantom Wraith Cipher Aegis Titan TitanVM2 StrongScalable)
 fi
 
 TMP=$(mktemp -d /tmp/feng-harness.XXXXXX)
