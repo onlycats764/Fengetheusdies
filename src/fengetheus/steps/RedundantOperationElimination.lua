@@ -36,9 +36,10 @@
 --
 -- Correctness notes:
 --   * The side-effect-free predicate is shared with ConstantFolding's logic
---     (literals, variable reads, index reads, function literals, and pure
---     binary/unary compositions). Function calls and table constructors are
---     NOT considered free.
+--     (literals, variable reads, function literals, and pure binary/unary
+--     compositions). Index reads are intentionally NOT considered free:
+--     `__index` can make evaluating the same expression twice observable.
+--     Function calls and table constructors are also not considered free.
 --   * Self-assignment removal compares scope identity and variable id. Two
 --     VariableExpressions refer to the same variable iff their scope table
 --     is identical and their id is equal.
@@ -90,7 +91,6 @@ local function isSideEffectFree(expr)
 		or k == AstKind.BooleanExpression
 		or k == AstKind.NilExpression
 		or k == AstKind.VariableExpression
-		or k == AstKind.IndexExpression
 		or k == AstKind.FunctionLiteralExpression
 	then
 		return true
