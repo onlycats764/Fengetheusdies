@@ -23,7 +23,8 @@ local irModule = require("fengetheus.compiler.ir");
 
 local Compiler = {};
 
-function Compiler:new()
+function Compiler:new(options)
+    options = options or {};
     local compiler = {
         blocks = {};
         registers = {};
@@ -32,6 +33,8 @@ function Compiler:new()
         usedRegisters = 0;
         maxUsedRegister = 0;
         registerVars = {};
+		DispatchMask = options.DispatchMask == true;
+		DispatchMaskMagnitude = options.DispatchMaskMagnitude or 4096;
 
         VAR_REGISTER = newproxy(false);
         RETURN_ALL = newproxy(false);

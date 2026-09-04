@@ -23,7 +23,7 @@
 --   identically to the original (same printed output AND return values) across
 --   every test case and multiple seeds, in LuaNode-VM.
 
-return {
+local presets = {
 	-- Minifies your code. Does not obfuscate it. No performance loss.
 	["Minify"] = {
 		LuaVersion = "Lua51",
@@ -343,3 +343,33 @@ return {
 		},
 	},
 }
+
+-- StrongVM2 keeps Strong's proven pipeline but enables the new VM dispatcher
+-- masking layer. Build the step list independently so changing this preset
+-- can never mutate Strong's configuration table by alias.
+local strongVm2Steps = {}
+for _, step in ipairs(presets.Strong.Steps) do
+	local settings = {}
+	for key, value in pairs(step.Settings or {}) do
+		settings[key] = value
+	end
+	if step.Name == "Vmify" then
+		settings.DispatchMask = true
+		settings.DispatchMaskMagnitude = 4096
+	end
+	strongVm2Steps[#strongVm2Steps + 1] = {
+		Name = step.Name,
+		Settings = settings,
+	}
+end
+
+presets.StrongVM2 = {
+	LuaVersion = presets.Strong.LuaVersion,
+	VarNamePrefix = presets.Strong.VarNamePrefix,
+	NameGenerator = presets.Strong.NameGenerator,
+	PrettyPrint = presets.Strong.PrettyPrint,
+	Seed = presets.Strong.Seed,
+	Steps = strongVm2Steps,
+}
+
+return presets

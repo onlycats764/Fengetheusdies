@@ -12,13 +12,30 @@ local Vmify = Step:extend();
 Vmify.Description = "This Step will Compile your script into a fully-custom (not a half custom like other lua obfuscators) Bytecode Format and emit a vm for executing it.";
 Vmify.Name = "Vmify";
 
-Vmify.SettingsDescriptor = {}
+Vmify.SettingsDescriptor = {
+    DispatchMask = {
+        type = "boolean",
+        default = false,
+    },
+    DispatchMaskMagnitude = {
+        type = "number",
+        default = 4096,
+        min = 1,
+        max = 1000000,
+    },
+}
 
-function Vmify:init(_) end
+function Vmify:init(config)
+    self.DispatchMask = config and config.DispatchMask == true or false
+    self.DispatchMaskMagnitude = (config and config.DispatchMaskMagnitude) or 4096
+end
 
 function Vmify:apply(ast)
     -- Create Compiler
-	local compiler = Compiler:new();
+	local compiler = Compiler:new({
+        DispatchMask = self.DispatchMask,
+        DispatchMaskMagnitude = self.DispatchMaskMagnitude,
+    });
 
     -- Compile the Script into a bytecode vm
     return compiler:compile(ast);

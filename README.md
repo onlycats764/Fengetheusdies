@@ -112,7 +112,7 @@ On Windows, the equivalent Lumora-backed regression harness is available as
 the sibling `work/Lumora` checkout; pass `-Lumora` to select another binary:
 
 ```
-powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced -Lumora C:\path\to\lumora.exe
+powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced,StrongVM2 -Lumora C:\path\to\lumora.exe
 ```
 
 To exercise the randomised transforms across multiple deterministic builds,

@@ -239,6 +239,13 @@ return function(Compiler)
             end
             local posExpr = self:pos(scope);
             local boundExpr = Ast.NumberExpression(bound);
+			if self.DispatchMask then
+				local magnitude = math.max(1, math.floor(self.DispatchMaskMagnitude or 4096));
+				local jitter = math.random(-magnitude, magnitude);
+				if jitter == 0 then jitter = magnitude; end
+				posExpr = Ast.AddExpression(posExpr, Ast.NumberExpression(jitter));
+				boundExpr = Ast.NumberExpression(bound + jitter);
+			end
 
             if useAndOr then
                 -- Kept for compatibility with caller variations.
@@ -330,18 +337,27 @@ return function(Compiler)
             local condStyle = (gap >= 2) and math.random(1, 3) or math.random(1, 2);
             local condition;
             local trueBlock, falseBlock;
+			local posExpr = self:pos(ifScope);
+			local boundExpr = Ast.NumberExpression(bound);
+			if self.DispatchMask then
+				local magnitude = math.max(1, math.floor(self.DispatchMaskMagnitude or 4096));
+				local jitter = math.random(-magnitude, magnitude);
+				if jitter == 0 then jitter = magnitude; end
+				posExpr = Ast.AddExpression(posExpr, Ast.NumberExpression(jitter));
+				boundExpr = Ast.NumberExpression(bound + jitter);
+			end
 
             if condStyle == 1 then
                 -- pos < bound
-                condition = Ast.LessThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
+                condition = Ast.LessThanExpression(posExpr, boundExpr);
                 trueBlock, falseBlock = lBlock, rBlock;
             elseif condStyle == 2 then
                 -- bound > pos
-                condition = Ast.GreaterThanExpression(Ast.NumberExpression(bound), self:pos(ifScope));
+                condition = Ast.GreaterThanExpression(boundExpr, posExpr);
                 trueBlock, falseBlock = lBlock, rBlock;
             else
                 -- Equivalent split using strict > with branches reversed.
-                condition = Ast.GreaterThanExpression(self:pos(ifScope), Ast.NumberExpression(bound));
+                condition = Ast.GreaterThanExpression(posExpr, boundExpr);
                 trueBlock, falseBlock = rBlock, lBlock;
             end
 
