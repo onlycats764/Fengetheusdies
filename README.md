@@ -115,6 +115,14 @@ the sibling `work/Lumora` checkout; pass `-Lumora` to select another binary:
 powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced -Lumora C:\path\to\lumora.exe
 ```
 
+To exercise the randomised transforms across multiple deterministic builds,
+pass more than one seed. The original program is run once per case and each
+obfuscated build is compared against that same baseline:
+
+```
+powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Seed 424242,8675309,13371337 -Lumora C:\path\to\lumora.exe
+```
+
 The harness compares Lumora's structured result (`ok`, `kind`, and `stdout`)
 for every case and preset, so file paths and generated line numbers do not
 create false failures. Use a timeout when validating protection-heavy presets:
