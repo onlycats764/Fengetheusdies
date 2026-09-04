@@ -106,17 +106,14 @@ local presets = {
 	-- ═══════════════════════════════════════════════════════════════════════
 	-- PHANTOM — Replaces "Weak"
 	-- ───────────────────────────────────────────────────────────────────────
-	-- VM-FIRST ordering.  Vmify runs early (right after the optimiser
-	-- trio), BEFORE string encryption and anti-tamper.  This is the
-	-- opposite of Prometheus Weak where Vmify runs late.  The anti-tamper
-	-- code is XOR-obfuscated via TamperObfuscator so bots cannot
-	-- recognise the integrity-check structure.  RewriteNamecalls converts
-	-- method calls to bracket-index form, adding a shape that
-	-- Prometheus presets never produce.
+-- VM ordering with AntiTamper compiled into the VM. AntiTamper runs
+-- before Vmify and is not wrapped in a post-VM TamperObfuscator loader.
+-- RewriteNamecalls converts method calls to bracket-index form, adding
+-- a shape that Prometheus presets never produce.
 	--
-	-- Pipeline: Opt → Vmify → EncryptStrings → ConstantArray(shuffled)
-	--           → NumbersToExpressions → AntiTamper → TamperObfuscator
-	--           → RewriteNamecalls → JunkCode → WrapInFunction
+-- Pipeline: Opt → AntiTamper → Vmify → EncryptStrings
+--           → ConstantArray(shuffled) → NumbersToExpressions
+--           → RewriteNamecalls → JunkCode → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
 	["Phantom"] = {
 		LuaVersion = "Lua51",
@@ -129,6 +126,7 @@ local presets = {
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
 			{ Name = "Vmify", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
@@ -143,8 +141,6 @@ local presets = {
 				},
 			},
 			{ Name = "NumbersToExpressions", Settings = {} },
-			{ Name = "AntiTamper", Settings = { UseDebug = false } },
-			{ Name = "TamperObfuscator", Settings = { XORLayers = 1 } },
 			{ Name = "RewriteNamecalls", Settings = { Threshold = 0.5, BracketIndex = true } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
@@ -154,17 +150,17 @@ local presets = {
 	-- ═══════════════════════════════════════════════════════════════════════
 	-- WRAITH — Replaces "WeakStealth"
 	-- ───────────────────────────────────────────────────────────────────────
-	-- Stealth-focused.  Uses Stealth-mode AntiTamper (which already uses
-	-- _G[string.char(...)] lookups and non-literal failure loops) and
-	-- then wraps that in TamperObfuscator for double obfuscation.
+-- Stealth-focused. Uses Stealth-mode AntiTamper (which already uses
+-- _G[string.char(...)] lookups and non-literal failure loops) compiled
+-- directly into the VM before the Vmify pass.
 	-- ControlFlowMutation runs BEFORE Vmify (unusual — Prometheus puts
 	-- control-flow steps after the VM), creating a different AST shape
 	-- entering the VM compiler.  SplitStrings adds string-chunk
 	-- indirection before the VM pass.
 	--
 	-- Pipeline: Opt → OpaquePredicate → ControlFlowMutation → SplitStrings
-	--           → Vmify → AntiTamper(stealth) → TamperObfuscator(2 layers)
-	--           → ConditionCamouflage → JunkCode → WrapInFunction
+--           → AntiTamper(stealth) → Vmify → ConditionCamouflage
+--           → JunkCode → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
 	["Wraith"] = {
 		LuaVersion = "Lua51",
@@ -191,10 +187,9 @@ local presets = {
 					CustomLocalFunctionsCount = 1,
 				},
 			},
-			{ Name = "Vmify", Settings = {} },
 			{ Name = "AntiTamper", Settings = { UseDebug = false, Stealth = true } },
-			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
-			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.4 } },
+				{ Name = "Vmify", Settings = {} },
+				{ Name = "ConditionCamouflage", Settings = { Threshold = 0.4 } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
@@ -203,16 +198,15 @@ local presets = {
 	-- ═══════════════════════════════════════════════════════════════════════
 	-- CIPHER — Replaces "Medium"
 	-- ───────────────────────────────────────────────────────────────────────
-	-- AntiSandbox runs FIRST (before any other obfuscation), then
-	-- AntiTamper, then both are XOR-obfuscated in one TamperObfuscator
-	-- pass.  This is the reverse of Prometheus Medium where anti-tamper
-	-- runs late.  SplitStrings runs before EncryptStrings (opposite
+	-- AntiSandbox and AntiTamper run before Vmify so both checks are
+-- compiled into the protected VM program. This keeps the anti-tamper
+-- path in the same protected execution flow as the payload.  SplitStrings runs before EncryptStrings (opposite
 	-- order from Medium), and the ConstantArray has local wrappers
 	-- (junk wrapper functions around the decoder).  ConditionCamouflage
 	-- adds `not not` around conditions after the VM.
 	--
-	-- Pipeline: Opt → AntiSandbox → AntiTamper → TamperObfuscator(2 layers)
-	--           → EncryptStrings → SplitStrings → Vmify → ConstantArray(wrappers)
+-- Pipeline: Opt → AntiSandbox → AntiTamper → EncryptStrings
+--           → SplitStrings → Vmify → ConstantArray(wrappers)
 	--           → NumbersToExpressions → ConditionCamouflage → JunkCode
 	--           → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
@@ -239,7 +233,6 @@ local presets = {
 				},
 			},
 			{ Name = "AntiTamper", Settings = { UseDebug = false } },
-			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
@@ -378,10 +371,10 @@ local presets = {
 	--   • RewriteNamecalls with bracket indexing is added.
 	--   • ConditionCamouflage is added.
 	--
-	-- Pipeline: Opt → OpaquePredicate → AntiSandbox → Vmify(early)
-	--           → EncryptStrings → SplitStrings → ControlFlowMutation
-	--           → ProxifyLocals → AntiTamper → TamperObfuscator(2 layers)
-	--           → ConstantArray(full) → ConstantArray(strings)
+-- Pipeline: Opt → OpaquePredicate → AntiSandbox → AntiTamper
+--           → Vmify(early) → EncryptStrings → SplitStrings
+--           → ControlFlowMutation → ProxifyLocals
+--           → ConstantArray(full) → ConstantArray(strings)
 	--           → NumbersToExpressions(mutation) → RewriteNamecalls
 	--           → ConditionCamouflage → JunkCode → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
@@ -408,6 +401,7 @@ local presets = {
 					Intensity = 5,
 				},
 			},
+			{ Name = "AntiTamper", Settings = { UseDebug = false } },
 			{ Name = "Vmify", Settings = {} },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
@@ -423,8 +417,6 @@ local presets = {
 			},
 			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.8, Layers = 2 } },
 			{ Name = "ProxifyLocals", Settings = {} },
-			{ Name = "AntiTamper", Settings = { UseDebug = false } },
-			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
 			{
 				Name = "ConstantArray",
 				Settings = {
@@ -538,7 +530,8 @@ local presets = {
 --   • Bounded local-wrapper indirection on the strings-only
 --     ConstantArray (second array pass only — wrapping the first would
 --     multiply the VM runtime AST).
---   • Multi-XOR tamper obfuscation (2 layers).
+--   • AntiTamper is inherited before Vmify from Titan; no post-VM
+--     TamperObfuscator is used in this VM preset.
 --
 -- Built dynamically by copying Titan's steps and injecting dispatch
 -- options + an extra mutation pass.  Build the step list independently
