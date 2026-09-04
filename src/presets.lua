@@ -348,6 +348,7 @@ local presets = {
 -- masking layer. Build the step list independently so changing this preset
 -- can never mutate Strong's configuration table by alias.
 local strongVm2Steps = {}
+local strongVm2ConstantArrays = 0
 for _, step in ipairs(presets.Strong.Steps) do
 	local settings = {}
 	for key, value in pairs(step.Settings or {}) do
@@ -356,6 +357,16 @@ for _, step in ipairs(presets.Strong.Steps) do
 	if step.Name == "Vmify" then
 		settings.DispatchMask = true
 		settings.DispatchMaskMagnitude = 4096
+	elseif step.Name == "ConstantArray" then
+		strongVm2ConstantArrays = strongVm2ConstantArrays + 1
+		-- Add a bounded second layer of local lookup indirection only to the
+		-- strings-only array. The first array contains VM data and is kept lean;
+		-- wrapping every generated VM scope would multiply compile time.
+		if strongVm2ConstantArrays == 2 then
+			settings.LocalWrapperThreshold = 1
+			settings.LocalWrapperCount = 2
+			settings.LocalWrapperArgCount = 6
+		end
 	end
 	strongVm2Steps[#strongVm2Steps + 1] = {
 		Name = step.Name,
