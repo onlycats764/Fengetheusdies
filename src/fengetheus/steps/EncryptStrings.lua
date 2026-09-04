@@ -23,6 +23,7 @@ function EncryptStrings:init(_) end
 
 function EncryptStrings:CreateEncryptionService()
 	local usedSeeds = {};
+	local encryptedValues = {};
 
 	local secret_key_6 = math.random(0, 63) -- 6-bit  arbitrary integer (0..63)
 	local secret_key_7 = math.random(0, 127) -- 7-bit  arbitrary integer (0..127)
@@ -87,6 +88,17 @@ function EncryptStrings:CreateEncryptionService()
 	end
 
 	local function encrypt(str)
+		-- Reusing the encrypted payload for equal literals is both smaller and
+		-- faster at runtime. The old implementation generated a fresh seed for
+		-- every occurrence, so a script with a repeated API name decrypted the
+		-- same bytes repeatedly and exposed an unnecessary one-to-one literal /
+		-- ciphertext pattern. Cache by the original value, not by ciphertext:
+		-- every seed remains unique and the cache is confined to this build.
+		local cached = encryptedValues[str]
+		if cached then
+			return cached[1], cached[2]
+		end
+
 		local seed = gen_seed();
 		set_seed(seed)
 		local len = string.len(str)
@@ -97,7 +109,9 @@ function EncryptStrings:CreateEncryptionService()
 			out[i] = string.char((byte - (get_next_pseudo_random_byte() + prevVal)) % 256);
 			prevVal = byte;
 		end
-		return table.concat(out), seed;
+		local encrypted = table.concat(out)
+		encryptedValues[str] = { encrypted, seed }
+		return encrypted, seed;
 	end
 
     local function genCode()
@@ -186,6 +200,20 @@ end]]
 end
 
 function EncryptStrings:apply(ast, _)
+    -- Do not ship a decoder runtime when the input has nothing to decrypt.
+    -- This matters for numeric/data scripts and also keeps the step composable
+    -- after an earlier constant-folding pass removed the last string literal.
+    local stringCount = 0
+    visitast(ast, nil, function(node)
+        if node.kind == AstKind.StringExpression then
+            stringCount = stringCount + 1
+        end
+        return node
+    end)
+    if stringCount == 0 then
+        return ast
+    end
+
     local Encryptor = self:CreateEncryptionService();
 
 	local code = Encryptor.genCode();
