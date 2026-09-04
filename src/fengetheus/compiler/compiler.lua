@@ -19,6 +19,7 @@ local registerModule = require("fengetheus.compiler.register");
 local upvalueModule = require("fengetheus.compiler.upvalue");
 local emitModule = require("fengetheus.compiler.emit");
 local compileCoreModule = require("fengetheus.compiler.compile_core");
+local irModule = require("fengetheus.compiler.ir");
 
 local Compiler = {};
 
@@ -92,6 +93,7 @@ function Compiler:compile(ast)
     self.usedRegisters = 0;
     self.registerVars = {};
     self.usedBlockIds = {};
+	self.ir = nil;
 
     self.upvalVars = {};
     self.registerUsageStack = {};
@@ -203,6 +205,12 @@ function Compiler:compile(ast)
     createClosureSubScope:addReferenceToHigherScope(createClosureScope, createClosureProxyObject);
 
     self:compileTopNode(ast);
+
+	-- Establish and validate the VM IR before constructing the final AST. This
+	-- catches malformed/duplicate control-flow blocks at the compiler boundary,
+	-- where the error is actionable, instead of producing a misleading nil
+	-- dispatch failure much later in the generated program.
+	self.ir = irModule.fromCompiler(self);
 
     local functionNodeAssignments = {
         {
