@@ -360,6 +360,7 @@ for _, step in ipairs(presets.Strong.Steps) do
 		settings.DispatchAffine = true
 		settings.DispatchBounce = true
 		settings.DispatchNonlinear = true
+		settings.DispatchAliasCount = 2
 		settings.DispatchMaskMagnitude = 4096
 		settings.DispatchNoiseMagnitude = 7
 	elseif step.Name == "ConstantArray" then

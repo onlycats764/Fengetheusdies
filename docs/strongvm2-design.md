@@ -13,7 +13,7 @@ cambiar el resultado observable del programa original.
 | Registros virtuales | El layout de registros se baraja con una semilla por compilación | La asignación se mantiene consistente dentro de cada chunk |
 | Estados por buckets | Los estados del dispatcher usan un stride positivo y un ruido pseudoaleatorio por valor | El mapa sigue siendo estrictamente monotónico para conservar el árbol binario, pero no se invierte con una sola fórmula afín |
 | Máscara del dispatcher | Los límites y posiciones llevan una máscara aleatoria acotada | Evita patrones constantes simples sin introducir aritmética no acotada |
-| Trampolines de dispatch | Cada destino recibe un bloque de rebote que vuelve a escribir `pos` antes de continuar | Se generan una vez por destino y se reutilizan; no hay bucles extra ni llamadas de usuario |
+| Trampolines de dispatch | Cada destino recibe varios bloques de rebote equivalentes y cada arista selecciona uno | El número de aliases está acotado; todos escriben el mismo estado y no ejecutan código del usuario |
 | Mutación de condiciones | `ControlFlowMutation` envuelve condiciones en capas equivalentes con predicados privados | Solo usa comparaciones numéricas locales y no evalúa dos veces la expresión original |
 | Predicados opacos existentes | Se conserva la etapa de predicados del pipeline | Se ejecuta antes de la mutación de condiciones para que ambas capas sean independientes |
 | Pool tipado de constantes | `ConstantArray` separa números, strings, booleanos y `nil` | Evita colisiones entre tipos y conserva `-0.0`, `NaN` y valores fraccionarios |

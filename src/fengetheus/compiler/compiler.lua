@@ -37,6 +37,7 @@ function Compiler:new(options)
 		DispatchAffine = options.DispatchAffine == true;
 		DispatchBounce = options.DispatchBounce == true;
 		DispatchNonlinear = options.DispatchNonlinear == true;
+		DispatchAliasCount = options.DispatchAliasCount or 1;
 		DispatchMaskMagnitude = options.DispatchMaskMagnitude or 4096;
 		DispatchNoiseMagnitude = options.DispatchNoiseMagnitude or 7;
 		DispatchMultiplier = 1;
@@ -112,28 +113,37 @@ function Compiler:addDispatchBounces()
 	local bounces = {}
 	local seen = {}
 
-	local function getBounce(target)
+	local function getBounces(target)
 		if bounces[target] then
 			return bounces[target]
 		end
 
-		local bounce = self:createBlock()
-		bounce.advanceToNextBlock = false
-		local scope = bounce.scope
-		scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar)
-		local transition = Ast.AssignmentStatement({
-			Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
-		}, {
-			Ast.NumberExpression(self:encodeDispatchValue(target))
-		})
-		bounce.statements[1] = {
-			statement = transition,
-			writes = lookupify({ self.POS_REGISTER }),
-			reads = {},
-			usesUpvals = false,
-		}
-		bounces[target] = bounce.id
-		return bounce.id
+		local aliases = {}
+		for _ = 1, self.DispatchAliasCount do
+			local bounce = self:createBlock()
+			bounce.advanceToNextBlock = false
+			local scope = bounce.scope
+			scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar)
+			local transition = Ast.AssignmentStatement({
+				Ast.AssignmentVariable(self.containerFuncScope, self.posVar)
+			}, {
+				Ast.NumberExpression(self:encodeDispatchValue(target))
+			})
+			bounce.statements[1] = {
+				statement = transition,
+				writes = lookupify({ self.POS_REGISTER }),
+				reads = {},
+				usesUpvals = false,
+			}
+			aliases[#aliases + 1] = bounce.id
+		end
+		bounces[target] = aliases
+		return aliases
+	end
+
+	local function chooseBounce(target)
+		local aliases = getBounces(target)
+		return aliases[math.random(1, #aliases)]
 	end
 
 	local function rewrite(node)
@@ -143,7 +153,7 @@ function Compiler:addDispatchBounces()
 		seen[node] = true
 
 		if node.kind == AstKind.NumberExpression and node.__dispatchTarget ~= nil then
-			local bounceId = getBounce(node.__dispatchTarget)
+			local bounceId = chooseBounce(node.__dispatchTarget)
 			node.value = self:encodeDispatchValue(bounceId)
 			node.__dispatchTarget = nil
 		end
@@ -167,7 +177,7 @@ function Compiler:addDispatchBounces()
 	-- The top-level closure entry is constructed after this pass. Point it at
 	-- the trampoline too, so the first VM iteration follows the same shape as
 	-- every later transition.
-	self.startBlockId = getBounce(self.startBlockId)
+	self.startBlockId = chooseBounce(self.startBlockId)
 end
 
 function Compiler:compile(ast)
@@ -179,8 +189,9 @@ function Compiler:compile(ast)
     self.maxUsedRegister = 0;
     self.usedRegisters = 0;
     self.registerVars = {};
-    self.usedBlockIds = {};
+	self.usedBlockIds = {};
 	self.ir = nil;
+	self.DispatchAliasCount = math.max(1, math.min(4, math.floor(self.DispatchAliasCount or 1)));
 
 	self.upvalVars = {};
 	self.registerUsageStack = {};
