@@ -304,8 +304,8 @@ local presets = {
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
 			{ Name = "ExtractGlobals", Settings = {} },
-			{ Name = "OpaquePredicate", Settings = { Threshold = 0.6 } },
-			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.7, Layers = 2 } },
+			{ Name = "OpaquePredicate", Settings = { Threshold = 0.4 } },
+			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.4, Layers = 1 } },
 			{ Name = "EncryptStrings", Settings = {} },
 			{
 				Name = "SplitStrings",
@@ -330,7 +330,7 @@ local presets = {
 			},
 			{ Name = "AntiTamper", Settings = { UseDebug = false } },
 			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
-			{ Name = "ProxifyLocals", Settings = {} },
+			{ Name = "ConstantArray", Settings = { Threshold = 1, StringsOnly = false, Shuffle = true, Rotate = true, LocalWrapperThreshold = 0 } },
 			{
 				Name = "ConstantArray",
 				Settings = {
@@ -359,7 +359,7 @@ local presets = {
 				},
 			},
 			{ Name = "ConditionCamouflage", Settings = { Threshold = 0.5 } },
-			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.5, Layers = 1 } },
+			{ Name = "ControlFlowMutation", Settings = { Threshold = 0.3, Layers = 1 } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
