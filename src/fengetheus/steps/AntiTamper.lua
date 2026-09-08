@@ -471,8 +471,19 @@ function AntiTamper:apply(ast, pipeline)
     end
     if debug then
         checkLibraryMembers(debug, {
-            "traceback", "info",
+            "traceback",
         });
+        -- debug.info is Luau-only; standard Lua 5.1/5.3/5.4/LuaJIT expose
+        -- debug.getinfo instead. Hard-requiring "info" made every AntiTamper
+        -- build enter the hard-halt loop on plain Lua engines (verified:
+        -- lua5.1 hung forever). Require whichever member the engine actually
+        -- provides, so the check stays tamper-sensitive without
+        -- false-positiving on engine version drift.
+        if debug.info then
+            checkLibraryMembers(debug, { "info" });
+        elseif debug.getinfo then
+            checkLibraryMembers(debug, { "getinfo" });
+        end
     end
 
     -- C-closure verification of every builtin we snapshotted. This is the

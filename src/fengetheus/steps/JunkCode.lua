@@ -108,18 +108,47 @@ local function randLiteral()
 	return randString();
 end
 
--- Generate a random binary expression from two expressions.
-local function randBinary(lhs, rhs)
+-- Generate a type-safe random binary expression.
+--
+-- Order comparisons and arithmetic between mismatched literal types
+-- (e.g. `false < true`, `"a" - 1`) parse fine but are hard RUNTIME ERRORS
+-- in standard Lua 5.1/5.3/5.4/LuaJIT ("attempt to compare two boolean
+-- values", "attempt to perform arithmetic on a string value") even though
+-- Luau tolerates/coerces some of them. Junk code must be error-free on
+-- every engine we emit for, so operand types are matched to the operator
+-- family:
+--   * arithmetic        -> number, number
+--   * order comparison  -> number, number  or  string, string
+--   * ==, ~=, and, or   -> any literals (always type-agnostic in Lua)
+local function randBinary()
 	local ops = {
-		Ast.AddExpression, Ast.SubExpression, Ast.MulExpression,
-		Ast.LessThanExpression, Ast.GreaterThanExpression,
-		Ast.LessThanOrEqualsExpression, Ast.GreaterThanOrEqualsExpression,
-		Ast.EqualsExpression, Ast.NotEqualsExpression,
-		Ast.AndExpression, Ast.OrExpression,
+		{ class = Ast.AddExpression, kind = "number" },
+		{ class = Ast.SubExpression, kind = "number" },
+		{ class = Ast.MulExpression, kind = "number" },
+		{ class = Ast.LessThanExpression, kind = "order" },
+		{ class = Ast.GreaterThanExpression, kind = "order" },
+		{ class = Ast.LessThanOrEqualsExpression, kind = "order" },
+		{ class = Ast.GreaterThanOrEqualsExpression, kind = "order" },
+		{ class = Ast.EqualsExpression, kind = "any" },
+		{ class = Ast.NotEqualsExpression, kind = "any" },
+		{ class = Ast.AndExpression, kind = "any" },
+		{ class = Ast.OrExpression, kind = "any" },
 	};
 	local op = ops[randInt(1, #ops)];
+	local lhs, rhs;
+	if op.kind == "number" then
+		lhs, rhs = randNumber(), randNumber();
+	elseif op.kind == "order" then
+		if math.random() < 0.5 then
+			lhs, rhs = randNumber(), randNumber();
+		else
+			lhs, rhs = randString(), randString();
+		end
+	else
+		lhs, rhs = randLiteral(), randLiteral();
+	end
 	-- simplify = false so the constructor does not try to fold.
-	return op(lhs, rhs, false);
+	return op.class(lhs, rhs, false);
 end
 
 -- Build a single junk statement in the given junk scope.
@@ -130,7 +159,7 @@ function JunkCode:makeJunkStatement(junkScope)
 		local id = junkScope:addVariable();
 		local expr;
 		if randInt(1, 3) == 1 then
-			expr = randBinary(randLiteral(), randLiteral());
+			expr = randBinary();
 		else
 			expr = randLiteral();
 		end
@@ -138,7 +167,7 @@ function JunkCode:makeJunkStatement(junkScope)
 	elseif r == 3 then
 		-- if <random condition> then local y = <expr> end
 		local condScope = childScope(junkScope);
-		local cond = randBinary(randLiteral(), randLiteral());
+		local cond = randBinary();
 		local bodyStatements = {};
 		local yId = condScope:addVariable();
 		bodyStatements[1] = Ast.LocalVariableDeclaration(condScope, { yId }, { randLiteral() });
