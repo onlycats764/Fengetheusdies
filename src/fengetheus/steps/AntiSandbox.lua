@@ -35,10 +35,13 @@
 -- corrupts state (randomised per build).
 
 local Step         = require("fengetheus.step")
+local Ast          = require("fengetheus.ast")
 local Parser       = require("fengetheus.parser")
 local Enums        = require("fengetheus.enums")
 local RandomStrings= require("fengetheus.randomStrings")
 local logger       = require("logger")
+
+local AstKind = Ast.AstKind
 
 local AntiSandbox = Step:extend()
 AntiSandbox.Description = "Injects anti-sandbox / anti-dump runtime checks that break execution in analysis environments while remaining transparent in real Roblox executors."
@@ -369,7 +372,15 @@ function AntiSandbox:apply(ast)
 
 	-- Generate code body
 	local parts = {}
-	table.insert(parts, "do local valid = true")
+	-- IIFE wrap: (function() ... end)() instead of do ... end, so the
+	-- injected checks get their own Proto and constant table.  Stock
+	-- Lua 5.1/5.4 dedupe zero constants NUMERICALLY (-0.0 == 0.0), so
+	-- the +0 literals this template needs (`= 0`, `error(..., 0)`,
+	-- `1/0`, `< 0`, `select('#', 1, nil, 3, nil) ~= 4` starts) would
+	-- silently flip any user -0.0 literal placed later in the main
+	-- chunk to +0.  The function boundary keeps user zero literals
+	-- untouched.  Luau dedupes bit-exactly and is immune.
+	table.insert(parts, "(function() local valid = true")
 
 	-- Interleave real checks with junk checks
 	for i, checkFn in ipairs(checks) do
@@ -403,14 +414,24 @@ function AntiSandbox:apply(ast)
 	table.insert(parts, string.format(
 		"if valid and %s == nil then local %s = %d end", sv, sv, sn))
 
-	table.insert(parts, "end")
+	table.insert(parts, "end)()")
 
 	local code = table.concat(parts, "\n")
 
 	-- Parse and inject into the AST (same pattern as AntiTamper)
 	local parsed = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 }):parse(code)
 	local doStat = parsed.body.statements[1]
-	doStat.body.scope:setParent(ast.body.scope)
+	-- IIFE shape: (function() ... end)() -- reach the function body's scope.
+	local injectBody;
+	if doStat.kind == AstKind.FunctionCallStatement
+		and doStat.base ~= nil
+		and doStat.base.kind == AstKind.FunctionLiteralExpression
+	then
+		injectBody = doStat.base.body;
+	else
+		injectBody = doStat.body;
+	end
+	injectBody.scope:setParent(ast.body.scope)
 	table.insert(ast.body.statements, 1, doStat)
 
 	return ast

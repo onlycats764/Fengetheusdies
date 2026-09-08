@@ -443,6 +443,40 @@ function Unparser:unparseExpression(expression, tabbing)
 		if(str == "-inf") then
 			return "-2e1024"
 		end
+		-- NaN is never a valid literal in any Lua dialect ("nan" parses as a
+		-- bare identifier -> nil at runtime). %.17g formats NaN as "nan" or
+		-- "-nan" depending on the platform libc. Fold a NaN constant back to
+		-- the canonical runtime computation so the value survives as an
+		-- expression the engine evaluates itself.
+		if(str == "nan" or str == "-nan" or str == "+nan") then
+			-- 0 / 0 evaluates to a quiet NaN on every engine we target
+			-- (Lua 5.1/5.4/LuaJIT/Luau); tostring(0/0) is "-nan" on some
+			-- platforms but the bit pattern compares equal via ~=.
+			return "(0/0)";
+		end
+		-- Signed zero hardening (see notes/fengetheus-signed-zero-bug.md):
+		-- %.17g emits "-0" for -0.0 and "0" for +0. Both parse to *integer*
+		-- zero on Lua 5.3+/5.4, which is semantically fine there, BUT on
+		-- stock Lua 5.1/5.4 the function constant table deduplicates zero
+		-- constants NUMERICALLY (-0.0 == 0.0), so the first zero literal in
+		-- a function silently absorbs every later opposite-signed zero:
+		--   local a = 0      -- K[1] = 0.0
+		--   local b = -0.0   -- luaK reuses K[1]!  b becomes +0.0
+		-- Luau fixed this with bit-exact comparison, which is why the Luau
+		-- harness never catches it. We cannot fix stock engines, but we can
+		-- guarantee Fengetheus never *introduces* the corruption:
+		--  * -0.0 is emitted as "-0.0" (explicit decimal point) so the
+		--    literal always describes a negative float on Lua 5.4 as well
+		--    (bare "-0" is a positive integer zero there, changing the type
+		--    of tostring(-0.0) from "-0.0" to "0" via math.type detection).
+		--  * 0 is emitted as "0" exactly as the user wrote it.
+		--  * The step pipeline additionally never injects zero-valued
+		--    constants ahead of user code (see EncryptStrings/AntiTamper
+		--    IIFE isolation), so the first-zero-wins order the *original*
+		--    chunk would observe is preserved bit-for-bit.
+		if(str == "-0") then
+			str = "-0.0";
+		end
 		if(str:sub(1, 2) == "0.") then
 			str = str:sub(2);
 		end

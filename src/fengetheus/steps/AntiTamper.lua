@@ -55,6 +55,7 @@
 --   sethook block is retained when UseDebug is enabled.
 
 local Step = require("fengetheus.step")
+local Ast = require("fengetheus.ast")
 local RandomStrings = require("fengetheus.randomStrings")
 local Parser = require("fengetheus.parser")
 local Enums = require("fengetheus.enums")
@@ -63,6 +64,8 @@ local logger = require("logger")
 local AntiTamper = Step:extend()
 AntiTamper.Description = "This Step Breaks your Script when it is modified. This is only effective when using the new VM."
 AntiTamper.Name = "Anti Tamper"
+
+local AstKind = Ast.AstKind
 
 AntiTamper.SettingsDescriptor = {
 	UseDebug = {
@@ -123,7 +126,17 @@ local function generateSanityCheck()
 		addCode("            end\n")
 	end
 
-	addCode("do local valid = '%s';", primaryCheck)
+	-- IIFE wrap: (function() ... end)() instead of do ... end.
+	-- A do...end block shares the main chunk's constant table. Stock Lua
+	-- 5.1/5.4 dedupe zero constants NUMERICALLY (-0.0 == 0.0), so the many
+	-- +0 literals this template needs (`for i = 0, ...`, `i == 0`,
+	-- `local acc1 = 0`, `random(0, 255)`, ...) would silently flip any user
+	-- -0.0 literal in the same chunk to +0 (observed: 1/-0.0 printing "inf"
+	-- instead of "-inf" under the Balanced preset). The function boundary
+	-- gives this template its own K-table, so user zero literals keep their
+	-- exact first-zero-wins order. Luau dedupes bit-exactly and is immune,
+	-- but Fengetheus targets stock Lua 5.1 too.
+	addCode("(function() local valid = '%s';", primaryCheck)
 	addCode("for i = 0, %d do\n", sanityPasses)
 	for i = 0, sanityPasses do
 		if i == 0 then
@@ -601,23 +614,21 @@ function AntiTamper:apply(ast, pipeline)
     if not valid then
         detected();
     end
-end
-
-    -- Anti Function Arg Hook
-    local obj = setmetatable({}, {
-        __tostring = function() ]] .. failureLoop(stealth, "argHaltState") .. [[ end,
-    });
-    obj[math.random(1, 100)] = obj;
-    (function() end)(obj);
-
-    if not valid then
-        ]] .. failureLoop(stealth, "finalHaltState") .. [[
-    end
-    ]]
+    end)()]]
 
 	local parsed = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 }):parse(code);
 	local doStat = parsed.body.statements[1];
-	doStat.body.scope:setParent(ast.body.scope);
+	-- IIFE shape: (function() ... end)() -- reach the function body's scope.
+	local decoderBody;
+	if doStat.kind == AstKind.FunctionCallStatement
+		and doStat.base ~= nil
+		and doStat.base.kind == AstKind.FunctionLiteralExpression
+	then
+		decoderBody = doStat.base.body;
+	else
+		decoderBody = doStat.body;
+	end
+	decoderBody.scope:setParent(ast.body.scope);
 	table.insert(ast.body.statements, 1, doStat);
 
 	return ast;

@@ -116,7 +116,7 @@ function EncryptStrings:CreateEncryptionService()
 
     local function genCode()
         local code = [[
-do
+(function()
 	]] .. table.concat(util.shuffle{
 		"local floor = math.floor",
 		"local random = math.random",
@@ -185,7 +185,7 @@ do
 		end
 		return seed;
 	end
-end]]
+end)()]]
 
 		return code;
     end
@@ -225,7 +225,29 @@ function EncryptStrings:apply(ast, _)
 	local decryptVar = scope:addVariable();
 	local stringsVar = scope:addVariable();
 
-	doStat.body.scope:setParent(ast.body.scope);
+	-- The template is an IIFE: (function() ... end)(). Isolating the decoder
+	-- body in its own function is REQUIRED for signed-zero safety: a plain
+	-- do...end block shares the main chunk's constant table, and stock Lua
+	-- 5.1/5.4 dedupe zero constants numerically (-0.0 == 0.0), so a decoder
+	-- +0 constant ahead of a user -0.0 literal silently flips the user's
+	-- zero to +0 (observed: 1/-0.0 printing "inf" instead of "-inf").
+	-- Luau dedupes bit-exactly and is immune, but we target stock Lua 5.1
+	-- too. The function boundary gives the decoder its own K-table.
+	local decoderBody;
+	if doStat.kind == AstKind.FunctionCallStatement
+		and doStat.base ~= nil
+		and doStat.base.kind == AstKind.FunctionLiteralExpression
+	then
+		decoderBody = doStat.base.body;
+	elseif doStat.body ~= nil then
+		-- Fallback: older template shape (do ... end). Still works, just
+		-- without the constant-table isolation.
+		decoderBody = doStat.body;
+	else
+		error("EncryptStrings: decoder template parsed to an unexpected statement shape", 0);
+	end
+
+	decoderBody.scope:setParent(ast.body.scope);
 
 	visitast(newAst, nil, function(node, data)
 		if(node.kind == AstKind.FunctionDeclaration) then

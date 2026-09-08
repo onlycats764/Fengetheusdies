@@ -149,6 +149,18 @@ function ConstantArray:createArray()
 	return Ast.TableConstructorExpression(entries);
 end
 
+-- Number literal that is guaranteed non-zero. Injecting a zero literal
+-- into a user function is a signed-zero hazard: Lua 5.1 dedupes a
+-- function's numeric constants numerically (-0.0 == 0.0), so a `+0`
+-- argument placed before a user `-0.0` literal absorbs it and flips
+-- the observable sign (1/-0.0 becomes +inf instead of -inf).
+local function nonzeroNumberLiteral(v)
+	if v == 0 then
+		return Ast.NumberExpression(1);
+	end
+	return Ast.NumberExpression(v);
+end
+
 function ConstantArray:indexing(index, data)
 	if self.LocalWrapperCount > 0 and data.functionData.local_wrappers then
 		local wrappers = data.functionData.local_wrappers;
@@ -158,9 +170,16 @@ function ConstantArray:indexing(index, data)
 		local ofs = index - self.wrapperOffset - wrapper.offset;
 		for i = 1, self.LocalWrapperArgCount, 1 do
 			if i == wrapper.arg then
-				args[i] = Ast.NumberExpression(ofs);
+				-- ofs is never 0 for the real index (see the wrapperOffset
+			-- guard), but keep the belt-and-braces nonzero guard here too.
+				args[i] = nonzeroNumberLiteral(ofs);
 			else
-				args[i] = Ast.NumberExpression(math.random(ofs - 1024, ofs + 1024));
+				-- Filler arguments must never be zero either.
+				local filler = math.random(ofs - 1024, ofs + 1024);
+				while filler == 0 do
+					filler = math.random(ofs - 1024, ofs + 1024);
+				end
+				args[i] = Ast.NumberExpression(filler);
 			end
 		end
 
@@ -262,8 +281,9 @@ end
 
 function ConstantArray:addDecodeCode(ast)
 	if self.Encoding == "base64" then
+		-- IIFE wrapper (see signed-zero note above).
 		local base64DecodeCode = [[
-	do ]] .. table.concat(util.shuffle{
+	(function() ]] .. table.concat(util.shuffle{
 		"local lookup = LOOKUP_TABLE;",
 		"local len = string.len;",
 		"local sub = string.sub;",
@@ -308,7 +328,7 @@ function ConstantArray:addDecodeCode(ast)
 				arr[i] = concat(parts)
 			end
 		end
-	end
+	end)()
 ]];
 
 		local parser = Parser:new({
@@ -317,7 +337,21 @@ function ConstantArray:addDecodeCode(ast)
 
 		local newAst = parser:parse(base64DecodeCode);
 		local forStat = newAst.body.statements[1];
-		forStat.body.scope:setParent(ast.body.scope);
+		-- IIFE shape: (function() ... end)() -> FunctionCallStatement with
+		-- a FunctionLiteralExpression base. Reparent the function body's
+		-- scope (the scope holding ARR/LOOKUP_TABLE refs), not the statement.
+		local decoderBody;
+		if forStat.kind == AstKind.FunctionCallStatement
+			and forStat.base ~= nil
+			and forStat.base.kind == AstKind.FunctionLiteralExpression
+		then
+			decoderBody = forStat.base.body;
+		elseif forStat.body ~= nil then
+			decoderBody = forStat.body;
+		else
+			error("ConstantArray: decoder template parsed to an unexpected statement shape", 0);
+		end
+		decoderBody.scope:setParent(ast.body.scope);
 
 		visitast(newAst, nil, function(node, data)
 			if(node.kind == AstKind.VariableExpression) then
@@ -337,8 +371,9 @@ function ConstantArray:addDecodeCode(ast)
 
 		table.insert(ast.body.statements, 1, forStat);
 	elseif self.Encoding == "base85" then
+		-- IIFE wrapper (see signed-zero note above).
 		local base85DecodeCode = [[
-	do ]] .. table.concat(util.shuffle{
+	(function() ]] .. table.concat(util.shuffle{
 		"local lookup = LOOKUP_TABLE;",
 		"local len = string.len;",
 		"local sub = string.sub;",
@@ -397,7 +432,7 @@ function ConstantArray:addDecodeCode(ast)
 				arr[i] = concat(parts)
 			end
 		end
-	end
+	end)()
 ]];
 
 		local parser = Parser:new({
@@ -406,7 +441,21 @@ function ConstantArray:addDecodeCode(ast)
 
 		local newAst = parser:parse(base85DecodeCode);
 		local forStat = newAst.body.statements[1];
-		forStat.body.scope:setParent(ast.body.scope);
+		-- IIFE shape: (function() ... end)() -> FunctionCallStatement with
+		-- a FunctionLiteralExpression base. Reparent the function body's
+		-- scope (the scope holding ARR/LOOKUP_TABLE refs), not the statement.
+		local decoderBody;
+		if forStat.kind == AstKind.FunctionCallStatement
+			and forStat.base ~= nil
+			and forStat.base.kind == AstKind.FunctionLiteralExpression
+		then
+			decoderBody = forStat.base.body;
+		elseif forStat.body ~= nil then
+			decoderBody = forStat.body;
+		else
+			error("ConstantArray: decoder template parsed to an unexpected statement shape", 0);
+		end
+		decoderBody.scope:setParent(ast.body.scope);
 
 		visitast(newAst, nil, function(node, data)
 			if(node.kind == AstKind.VariableExpression) then
@@ -426,8 +475,9 @@ function ConstantArray:addDecodeCode(ast)
 
 		table.insert(ast.body.statements, 1, forStat);
 	elseif self.Encoding == "mixed" then
+		-- IIFE wrapper (see signed-zero note above).
 		local mixedDecodeCode = [[
-	do ]] .. table.concat(util.shuffle{
+	(function() ]] .. table.concat(util.shuffle{
 		"local lookup64 = LOOKUP_TABLE_64;",
 		"local lookup85 = LOOKUP_TABLE_85;",
 		"local len = string.len;",
@@ -522,7 +572,7 @@ function ConstantArray:addDecodeCode(ast)
 				end
 			end
 		end
-	end
+	end)()
 ]];
 
 		local parser = Parser:new({
@@ -531,7 +581,21 @@ function ConstantArray:addDecodeCode(ast)
 
 		local newAst = parser:parse(mixedDecodeCode);
 		local forStat = newAst.body.statements[1];
-		forStat.body.scope:setParent(ast.body.scope);
+		-- IIFE shape: (function() ... end)() -> FunctionCallStatement with
+		-- a FunctionLiteralExpression base. Reparent the function body's
+		-- scope (the scope holding ARR/LOOKUP_TABLE refs), not the statement.
+		local decoderBody;
+		if forStat.kind == AstKind.FunctionCallStatement
+			and forStat.base ~= nil
+			and forStat.base.kind == AstKind.FunctionLiteralExpression
+		then
+			decoderBody = forStat.base.body;
+		elseif forStat.body ~= nil then
+			decoderBody = forStat.body;
+		else
+			error("ConstantArray: decoder template parsed to an unexpected statement shape", 0);
+		end
+		decoderBody.scope:setParent(ast.body.scope);
 
 		visitast(newAst, nil, function(node, data)
 			if(node.kind == AstKind.VariableExpression) then
@@ -701,7 +765,17 @@ function ConstantArray:apply(ast, pipeline)
 			elseif not self.StringsOnly and node.isConstant then
 				value = node.value;
 			end
-			if value ~= nil then
+			-- Signed-zero guard: numeric constants equal to zero (either
+			-- sign) are NEVER extracted into the array. The array literal
+		-- itself is a table constructor in the main chunk; on Lua 5.1
+		-- every numeric literal in a function shares one K table that
+		-- dedupes numerically (-0.0 == 0.0 is true), so a `{0, -0.0}`
+		-- constructor would silently flip one of the two entries to the
+		-- other's sign at compile time, and the emitted per-site index
+		-- arithmetic can also inject zeros into user functions. Leaving
+		-- zero literals exactly where the user wrote them (in their
+		-- original order) is the only fully sign-preserving option.
+			if value ~= nil and not (type(value) == "number" and value == 0) then
 				self:addConstant(value);
 				if self.LocalWrapperCount == 0 then
 					table.insert(self.replacements, {
@@ -727,8 +801,16 @@ function ConstantArray:apply(ast, pipeline)
 		end
 	end
 
-	-- Set Wrapper Function Offset
+	-- Set Wrapper Function Offset. Never 0: a zero offset makes
+	-- `index - wrapperOffset` emit the raw index as a literal argument to
+	-- `wrapper(...)` calls placed inside user functions, and an index of 0
+	-- (no constants collected yet) would inject a `+0` literal into that
+	-- user function — flipping any user `-0.0` in the same function on
+	-- Lua 5.1 via its numeric K-table dedupe.
 	self.wrapperOffset = math.random(-self.MaxWrapperOffset, self.MaxWrapperOffset);
+	while self.wrapperOffset == 0 do
+		self.wrapperOffset = math.random(-self.MaxWrapperOffset, self.MaxWrapperOffset);
+	end
 	self.wrapperId = self.rootScope:addVariable();
 
 	if self.LocalWrapperCount == 0 then

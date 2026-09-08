@@ -223,12 +223,18 @@ function ConstantFolding:foldBinary(expr)
 
 	if self.AlgebraicIdentities then
 		if k == AstKind.AddExpression then
-			-- x + 0 -> x ; 0 + x -> x
-			if isZero(rhs) and isDefinitelyNumber(lhs) then return lhs end
-			if isZero(lhs) and isDefinitelyNumber(rhs) then return rhs end
+			-- x + 0 -> x ; 0 + x -> x : NOT applied. Under IEEE-754,
+			-- `-0.0 + 0.0` is `+0.0`, NOT `-0.0` — replacing `-0.0 + 0`
+			-- with `-0.0` changes the observable sign of the zero
+			-- (tostring(-0.0+0) == "0", tostring(-0.0) == "-0"). isZero
+			-- also cannot distinguish -0.0 from 0 numerically, so there
+			-- is no safe subset. Additionally, removing a zero literal
+			-- from a function changes which zero constant later zero
+			-- literals dedupe into on Lua 5.1 (its K-table dedupe compares
+			-- numbers numerically, so -0.0 == 0.0), silently flipping the
+			-- sign of user zeros — see the ConstantArray decoder note.
 		elseif k == AstKind.SubExpression then
-			-- x - 0 -> x
-			if isZero(rhs) and isDefinitelyNumber(lhs) then return lhs end
+			-- x - 0 -> x : same signed-zero + K-dedupe hazard, skipped.
 			-- 0 - x -> -x  (only if x is side-effect-free; -x is a unary negate)
 			-- Skip: marginal and risks changing semantics for string/other.
 		elseif k == AstKind.MulExpression then
@@ -246,11 +252,13 @@ function ConstantFolding:foldBinary(expr)
 		elseif k == AstKind.PowExpression then
 			-- x ^ 1 -> x
 			if isOne(rhs) and isDefinitelyNumber(lhs) then return lhs end
-			-- x ^ 0 -> 1 only for a definitely numeric x; arbitrary Lua values
-			-- can raise a type error before the exponent identity applies.
-			if isZero(rhs) and isDefinitelyNumber(lhs) then
-				return Ast.NumberExpression(1)
-			end
+			-- x ^ 0 -> 1 : mathematically exact (even 0^0 == 1 in IEEE-754),
+			-- but it deletes the zero literal from the K table. On Lua 5.1
+			-- that can flip a later user -0.0 literal that had deduped into
+			-- the removed slot's zero (numeric K-dedupe), so we skip it.
+			-- if isZero(rhs) and isDefinitelyNumber(lhs) then
+			-- 	return Ast.NumberExpression(1)
+			-- end
 			-- 1 ^ x -> 1 only when x is known numeric. Lua does not coerce a
 			-- string/table exponent, so dropping the operation otherwise hides
 			-- a runtime type error.
