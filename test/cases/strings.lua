@@ -31,9 +31,11 @@ local bytes = {}
 for i = 1, string.len(s) do
     bytes[i] = string.byte(s, i)
 end
--- Lua 5.1 (el runtime target del obfuscador) expone unpack como global,
--- no como table.unpack (que llego en 5.2). Usar unpack mantiene el caso
--- valido en el runtime de test sin cambiar lo que el obfuscador ejercita.
+-- Portable unpack: Lua 5.1/JIT exponen unpack como global, 5.2+ como
+-- table.unpack. La declaracion local captura la existente en cada runtime
+-- y mantiene el caso valido en los cinco motores sin dejar de ejercitar
+-- el paso de multiples valores a string.char.
+local unpack = unpack or table.unpack
 local rebuild = string.char(unpack(bytes))
 print("roundtrip=" .. tostring(rebuild == s))
 return table.concat(out, "|"), string.len(big), rebuild == s

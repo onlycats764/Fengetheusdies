@@ -26,7 +26,7 @@ return function(self, expression, funcDepth, numReturns)
         if i == #expression.args and not expr.isParenthesizedExpression and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
             local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
             table.insert(args, Ast.FunctionCallExpression(
-                self:unpack(scope),
+                self:expand(scope),
                 {self:register(scope, reg)}));
             table.insert(regs, reg);
         else
@@ -37,7 +37,8 @@ return function(self, expression, funcDepth, numReturns)
     end
 
     if returnAll then
-        self:addStatement(self:setRegister(scope, retRegs[1], Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, baseReg), args))}), {retRegs[1]}, {baseReg, unpack(regs)}, true);
+        -- FIX#3 channel 9a: RETURN_ALL packs via P(...) with the TRUE count.
+        self:addStatement(self:setRegister(scope, retRegs[1], Ast.FunctionCallExpression(self:pack(scope), {Ast.FunctionCallExpression(self:register(scope, baseReg), args)})), {retRegs[1]}, {baseReg, unpack(regs)}, true);
     else
         if numReturns > 1 then
             local tmpReg = self:allocRegister(false);

@@ -9,7 +9,7 @@ LUMORA="${LUMORA:-/workspace/Lumora/bin/lumora}"
 LUA_BIN="${LUA_BIN:-lua5.1}"
 export LUA_BIN
 
-CASES=(arithmetic closures fibonacci strings tables varargs sieve tween roblox_gui vm_control_flow repeated_strings numeric_only optimizer_semantics static_chain long_string)
+CASES=(arithmetic closures fibonacci strings tables varargs nilholes sieve tween roblox_gui vm_control_flow repeated_strings numeric_only optimizer_semantics static_chain long_string)
 PRESETS=("$@")
 if [ ${#PRESETS[@]} -eq 0 ]; then
   PRESETS=(Minify Balanced Phantom Wraith Cipher Aegis Titan TitanVM2 StrongScalable)
@@ -54,6 +54,7 @@ run_case() {
   else
     flags="--no-roblox"
   fi
+  # nilholes only prints/returns; it is engine-portable (5.1/5.2+/JIT/Luau)
   timeout 30 "$LUMORA" $flags "$src" >"$out_orig" 2>&1 || true
   timeout 60 "$LUMORA" $flags "$obf" >"$out_obf" 2>&1
   local rc=$?

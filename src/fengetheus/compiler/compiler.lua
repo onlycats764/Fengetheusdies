@@ -261,6 +261,9 @@ function Compiler:compile(ast)
     self.envVar = self.scope:addVariable();
     self.containerFuncVar = self.scope:addVariable();
     self.unpackVar = self.scope:addVariable();
+    -- FIX#3: P (pack multi-values with true count) and X (hole-safe expand)
+    self.packVar = self.scope:addVariable();
+    self.expandVar = self.scope:addVariable();
     self.newproxyVar = self.scope:addVariable();
     self.setmetatableVar = self.scope:addVariable();
     self.getmetatableVar = self.scope:addVariable();
@@ -316,6 +319,11 @@ function Compiler:compile(ast)
     end
 
     createClosureSubScope:addReferenceToHigherScope(self.scope, self.containerFuncVar);
+    -- FIX#3 A6-companion: the vararg creator's inner function packs '...'
+    -- with P(), so the sub-scope must treat the pack variable as an
+    -- upvalue reference; otherwise the renamer may shadow it with the
+    -- proxy local and the generated VM breaks at runtime.
+    createClosureSubScope:addReferenceToHigherScope(self.scope, self.packVar);
     createClosureSubScope:addReferenceToHigherScope(createClosureScope, createClosurePosArg)
     createClosureSubScope:addReferenceToHigherScope(createClosureScope, createClosureUpvalsArg, 1)
     createClosureScope:addReferenceToHigherScope(self.scope, self.upvaluesProxyFunctionVar)
@@ -362,7 +370,7 @@ function Compiler:compile(ast)
                             Ast.ReturnStatement{
                                 Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.containerFuncVar), {
                                     Ast.VariableExpression(createClosureScope, createClosurePosArg),
-                                    Ast.TableConstructorExpression({Ast.TableEntry(Ast.VarargExpression())}),
+                                    Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.packVar), {Ast.VarargExpression()}),
                                     Ast.VariableExpression(createClosureScope, createClosureUpvalsArg),
                                     Ast.VariableExpression(createClosureScope, createClosureProxyObject)
                                 })
@@ -373,6 +381,43 @@ function Compiler:compile(ast)
                     Ast.ReturnStatement{Ast.VariableExpression(createClosureScope, createClosureFuncVar)};
                 }, createClosureScope)
             );
+        }, {
+            -- P: pack varargs/multi-values into {[0]=trueCount, v1..vn}.
+            -- select('#',...) is hole-proof on every engine; the count lives
+            -- at integer key 0 so it never participates in the length border.
+            var = Ast.AssignmentVariable(self.scope, self.packVar),
+            val = (function()
+                local pScope = Scope:new(self.scope);
+                pScope:addReferenceToHigherScope(self.scope, self.selectVar);
+                return Ast.FunctionLiteralExpression({Ast.VarargExpression()}, Ast.Block({
+                    Ast.ReturnStatement({Ast.TableConstructorExpression({
+                        Ast.KeyedTableEntry(
+                            Ast.NumberExpression(0),
+                            Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.selectVar), {
+                                Ast.StringExpression("#"), Ast.VarargExpression();
+                            })),
+                        Ast.TableEntry(Ast.VarargExpression());
+                    })})
+                }, pScope));
+            end)(),
+        }, {
+            -- X: expand a packed table back to multiple values with explicit
+            -- bounds: unpack(t, 1, t[0]). Never consults #t, so embedded nils
+            -- survive on every engine (5.1/LuaJIT/5.3/5.4/Lumora).
+            var = Ast.AssignmentVariable(self.scope, self.expandVar),
+            val = (function()
+                local xScope = Scope:new(self.scope);
+                xScope:addReferenceToHigherScope(self.scope, self.unpackVar);
+                local xArg = xScope:addVariable();
+                return Ast.FunctionLiteralExpression({Ast.VariableExpression(xScope, xArg)}, Ast.Block({
+                    Ast.ReturnStatement({Ast.FunctionCallExpression(
+                        Ast.VariableExpression(self.scope, self.unpackVar), {
+                            Ast.VariableExpression(xScope, xArg),
+                            Ast.NumberExpression(1),
+                            Ast.IndexExpression(Ast.VariableExpression(xScope, xArg), Ast.NumberExpression(0))
+                        })})
+                }, xScope));
+            end)(),
         }, {
             var = Ast.AssignmentVariable(self.scope, self.upvaluesTable),
             val = Ast.TableConstructorExpression({}),
@@ -400,6 +445,8 @@ function Compiler:compile(ast)
     local tbl = {
         Ast.VariableExpression(self.scope, self.containerFuncVar),
         Ast.VariableExpression(self.scope, self.createVarargClosureVar),
+        Ast.VariableExpression(self.scope, self.packVar),
+        Ast.VariableExpression(self.scope, self.expandVar),
         Ast.VariableExpression(self.scope, self.upvaluesTable),
         Ast.VariableExpression(self.scope, self.upvaluesReferenceCountsTable),
         Ast.VariableExpression(self.scope, self.allocUpvalFunction),
@@ -441,7 +488,14 @@ function Compiler:compile(ast)
         Ast.VariableExpression(newGlobalScope, setmetatableVar);
         Ast.VariableExpression(newGlobalScope, getmetatableVar);
         Ast.VariableExpression(newGlobalScope, selectVar);
+        -- FIX#3 channel 1: packed outer-args carrier. Inlined (global select)
+        -- because psc can only reference globals, never self.scope locals.
         Ast.TableConstructorExpression({
+            Ast.KeyedTableEntry(
+                Ast.NumberExpression(0),
+                Ast.FunctionCallExpression(Ast.VariableExpression(newGlobalScope, selectVar), {
+                    Ast.StringExpression("#"), Ast.VarargExpression();
+                })),
             Ast.TableEntry(Ast.VarargExpression());
         })
     }
@@ -456,7 +510,7 @@ function Compiler:compile(ast)
             Ast.FunctionCallExpression(Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.createVarargClosureVar), {
 					self:blockIdExpression(self.startBlockId);
                     Ast.TableConstructorExpression(upvalEntries);
-                }), {Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.unpackVar), {Ast.VariableExpression(self.scope, argVar)})});
+                }), {Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.expandVar), {Ast.VariableExpression(self.scope, argVar)})});
         }
     }, self.scope));
 
@@ -522,6 +576,10 @@ function Compiler:getCreateClosureVar(argCount)
             argsTb[i] = Ast.VariableExpression(createClosureSubScope, arg);
             argsTb2[i] = Ast.TableEntry(Ast.VariableExpression(createClosureSubScope, arg));
         end
+        -- FIX#3 channel 7: fixed-arity creators pack args with a literal
+        -- count slot at [0]; arity is static so no P() call is needed.
+        table.insert(argsTb2, 1, Ast.KeyedTableEntry(
+            Ast.NumberExpression(0), Ast.NumberExpression(argCount)));
 
         local val = Ast.FunctionLiteralExpression({
             Ast.VariableExpression(createClosureScope, createClosurePosArg),

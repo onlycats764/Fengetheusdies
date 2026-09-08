@@ -26,7 +26,7 @@ return function(self, expression, funcDepth, numReturns)
         if i == #expression.args and not expr.isParenthesizedExpression and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
             local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
             table.insert(args, Ast.FunctionCallExpression(
-                self:unpack(scope),
+                self:expand(scope),
                 {self:register(scope, reg)}));
             table.insert(regs, reg);
         else
@@ -43,7 +43,8 @@ return function(self, expression, funcDepth, numReturns)
         self:addStatement(self:setRegister(scope, tmpReg, Ast.IndexExpression(self:register(scope, baseReg), self:register(scope, tmpReg))), {tmpReg}, {baseReg, tmpReg}, true);
 
         if returnAll then
-            self:addStatement(self:setRegister(scope, retRegs[1], Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, tmpReg), args))}), {retRegs[1]}, {tmpReg, unpack(regs)}, true);
+            -- FIX#3 channel 9b: RETURN_ALL packs via P(...) with the TRUE count.
+            self:addStatement(self:setRegister(scope, retRegs[1], Ast.FunctionCallExpression(self:pack(scope), {Ast.FunctionCallExpression(self:register(scope, tmpReg), args)})), {retRegs[1]}, {tmpReg, unpack(regs)}, true);
         else
             -- See the equivalent comment in expressions/function_call.lua:
             -- a parenthesized call must truncate to exactly one real value

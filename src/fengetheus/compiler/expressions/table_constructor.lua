@@ -20,7 +20,7 @@ return function(self, expression, funcDepth, numReturns)
                     if i == #expression.entries and not value.isParenthesizedExpression and (value.kind == AstKind.FunctionCallExpression or value.kind == AstKind.PassSelfFunctionCallExpression or value.kind == AstKind.VarargExpression) then
                         local reg = self:compileExpression(entry.value, funcDepth, self.RETURN_ALL)[1];
                         table.insert(entries, Ast.TableEntry(Ast.FunctionCallExpression(
-                            self:unpack(scope),
+                            self:expand(scope),
                             {self:register(scope, reg)})));
                         table.insert(entryRegs, reg);
                     else

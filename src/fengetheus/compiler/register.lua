@@ -232,6 +232,20 @@ return function(Compiler)
         return Ast.VariableExpression(self.scope, self.unpackVar);
     end
 
+    -- FIX#3: reference-resolving accessors for the VM's pack/expand infra.
+    -- Must be used from any deeper scope so the name-renamer cannot generate
+    -- a shadowing name for packVar/expandVar (forbidden names are built from
+    -- variablesFromHigherScopes, which these refs populate).
+    function Compiler:pack(scope)
+        scope:addReferenceToHigherScope(self.scope, self.packVar);
+        return Ast.VariableExpression(self.scope, self.packVar);
+    end
+
+    function Compiler:expand(scope)
+        scope:addReferenceToHigherScope(self.scope, self.expandVar);
+        return Ast.VariableExpression(self.scope, self.expandVar);
+    end
+
     function Compiler:env(scope)
         scope:addReferenceToHigherScope(self.scope, self.envVar);
         return Ast.VariableExpression(self.scope, self.envVar);

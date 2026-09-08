@@ -56,7 +56,7 @@ return function(Compiler)
         self:compileBlock(node.body, 0);
         if(self.activeBlock.advanceToNextBlock) then
             self:addStatement(self:setPos(self.activeBlock.scope, nil), {self.POS_REGISTER}, {}, false);
-            self:addStatement(self:setReturn(self.activeBlock.scope, Ast.TableConstructorExpression({})), {self.RETURN_REGISTER}, {}, false)
+            self:addStatement(self:setReturn(self.activeBlock.scope, Ast.TableConstructorExpression({Ast.KeyedTableEntry(Ast.NumberExpression(0), Ast.NumberExpression(0))})), {self.RETURN_REGISTER}, {}, false)
             self.activeBlock.advanceToNextBlock = false;
         end
 
@@ -121,15 +121,18 @@ return function(Compiler)
             else
                 self.varargReg = self:allocRegister(true);
                 scope:addReferenceToHigherScope(self.containerFuncScope, self.argsVar);
+                -- FIX#3 channel 3: vararg slice packs with the TRUE count:
+                -- P(select(i, X(args))). The old form used a raw table whose
+                -- length border is undefined with embedded nils -> LuaJIT
+                -- truncates the slice.
                 scope:addReferenceToHigherScope(self.scope, self.selectVar);
-                scope:addReferenceToHigherScope(self.scope, self.unpackVar);
-                self:addStatement(self:setRegister(scope, self.varargReg, Ast.TableConstructorExpression({
-                    Ast.TableEntry(Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.selectVar), {
+                self:addStatement(self:setRegister(scope, self.varargReg, Ast.FunctionCallExpression(self:pack(scope), {
+                    Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.selectVar), {
                         Ast.NumberExpression(i);
-                        Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.unpackVar), {
+                        Ast.FunctionCallExpression(self:expand(scope), {
                             Ast.VariableExpression(self.containerFuncScope, self.argsVar),
                         });
-                    })),
+                    }),
                 })), {self.varargReg}, {}, false);
             end
         end
@@ -137,7 +140,7 @@ return function(Compiler)
         self:compileBlock(node.body, funcDepth);
         if(self.activeBlock.advanceToNextBlock) then
             self:addStatement(self:setPos(self.activeBlock.scope, nil), {self.POS_REGISTER}, {}, false);
-            self:addStatement(self:setReturn(self.activeBlock.scope, Ast.TableConstructorExpression({})), {self.RETURN_REGISTER}, {}, false);
+            self:addStatement(self:setReturn(self.activeBlock.scope, Ast.TableConstructorExpression({Ast.KeyedTableEntry(Ast.NumberExpression(0), Ast.NumberExpression(0))})), {self.RETURN_REGISTER}, {}, false);
             self.activeBlock.advanceToNextBlock = false;
         end
 

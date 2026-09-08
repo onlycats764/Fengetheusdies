@@ -376,6 +376,7 @@ return function(Compiler)
         self.whileScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
 
         self.containerFuncScope:addReferenceToHigherScope(self.scope, self.unpackVar);
+        self.containerFuncScope:addReferenceToHigherScope(self.scope, self.expandVar);
 
         local declarations = {
             self.returnVar,
@@ -404,8 +405,10 @@ return function(Compiler)
             Ast.LenExpression(Ast.VariableExpression(self.containerFuncScope, self.detectGcCollectVar))
         }));
 
+        -- FIX#3 channel 10: hole-safe expansion of the container's return
+        -- value; unpack(t,1,t[0]) never consults #t so nils survive.
         table.insert(stats, Ast.ReturnStatement{
-            Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.unpackVar), {
+            Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.expandVar), {
                 Ast.VariableExpression(self.containerFuncScope, self.returnVar)
             });
         });
