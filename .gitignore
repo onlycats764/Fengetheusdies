@@ -10,3 +10,5 @@
 # Temporary / scratch files
 /tmp/
 test-bisect-tmp.mjs
+.vercel-site/
+web/src/

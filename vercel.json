@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "buildCommand": "node scripts/vercel-build.mjs",
+  "outputDirectory": ".vercel-site",
+  "framework": null,
+  "cleanUrls": true
+}

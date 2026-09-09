@@ -109,6 +109,12 @@ LUA_BIN=lua5.3 test/cli-smoke.sh
 
 Additional Lua cases and invariant or trace checks are available under [`test/`](./test).
 
+## Browser web client
+
+The repository includes a complete browser client under [`web/`](./web). It runs the Fengetheus pipeline locally in the browser, keeps source and generated Lua in memory, and exposes the result only through a download button. The Vercel build copies the compiler modules beside the static client so private repositories do not need a GitHub Raw request.
+
+To deploy it with Vercel, import the repository with the repository root as the project root. The checked-in [`vercel.json`](./vercel.json) runs `scripts/vercel-build.mjs` and publishes the generated `.vercel-site` directory. No server runtime or environment variable is required.
+
 On Windows, the equivalent Lumora-backed regression harness is available as
 `test/obf-harness.ps1`. It discovers the locally built Lumora executable under
 the sibling `work/Lumora` checkout; pass `-Lumora` to select another binary:
