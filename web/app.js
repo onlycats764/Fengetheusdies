@@ -19,6 +19,7 @@
   let generatedName = "protected.lua";
   let downloadUrl = null;
   let runtimePromise = null;
+  let obfuscationWorker = null;
 
   const presetDescriptions = {
     Minify: "Smallest change: cleans and simplifies code without a heavy runtime layer.",
@@ -269,16 +270,27 @@
   dropzone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); sourceInput.click(); } });
   $("#remove-file").addEventListener("click", clearFile);
   $("#download").addEventListener("click", () => { if (!downloadUrl) return; const link = document.createElement("a"); link.href = downloadUrl; link.download = generatedName; link.click(); });
+  function runInWorker(source, filename, configuration) {
+    return new Promise((resolve, reject) => {
+      if (obfuscationWorker) obfuscationWorker.terminate();
+      obfuscationWorker = new Worker(new URL("worker.js", appUrl), { type: "classic" });
+      obfuscationWorker.onmessage = (event) => {
+        const message = event.data || {};
+        if (message.type === "progress") setProgress(message.percent, message.label);
+        if (message.type === "complete") resolve(message.output);
+        if (message.type === "error") reject(new Error(message.message));
+      };
+      obfuscationWorker.onerror = () => reject(new Error("The browser worker stopped unexpectedly. Reload the page and try again."));
+      obfuscationWorker.postMessage({ type: "obfuscate", source, filename, configuration });
+    });
+  }
   obfuscateButton.addEventListener("click", async () => {
     if (!selectedFile) return;
     clearError(); resultCard.classList.add("is-hidden"); progressWrap.classList.remove("is-hidden"); obfuscateButton.disabled = true; setProgress(7, "Reading your source file…");
     try {
       const source = await selectedFile.text();
       if (!source.trim()) throw new Error("The selected file is empty.");
-      const runtime = await getRuntime();
-      setProgress(68, "Running the selected obfuscation pipeline…");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      generatedSource = runtime.run(source, selectedFile.name);
+      generatedSource = await runInWorker(source, selectedFile.name, configurationSnippet());
       generatedName = selectedFile.name.replace(/\.(luau?|txt)$/i, "") + ".obfuscated.lua";
       if (downloadUrl) URL.revokeObjectURL(downloadUrl);
       downloadUrl = URL.createObjectURL(new Blob([generatedSource], { type: "text/plain;charset=utf-8" }));
