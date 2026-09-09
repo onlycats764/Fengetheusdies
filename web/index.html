@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090909">
+  <meta name="description" content="Fengetheus — client-side Lua obfuscation for protected downloads.">
+  <title>Fengetheus // Lua Obfuscator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+  <header class="site-header">
+    <a class="brand" href="./" aria-label="Fengetheus home">
+      <span class="brand-mark">F/</span>
+      <span>FENGETHEUS</span>
+    </a>
+    <div class="header-note"><span class="pulse-dot"></span> Runs locally in your browser</div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">PRIVATE CLIENT-SIDE PIPELINE</p>
+      <h1>Make Lua harder<br><span>to read.</span></h1>
+      <p class="hero-copy">Choose a proven Fengetheus profile or assemble your own pipeline. Your source stays in this browser; only the finished download leaves the page.</p>
+    </section>
+
+    <section class="workspace" aria-label="Obfuscation workspace">
+      <div class="input-column">
+        <div class="section-kicker"><span>01</span><strong>Source file</strong><em id="file-state">Waiting for a file</em></div>
+        <label class="dropzone" id="dropzone" for="source-file" tabindex="0">
+          <input id="source-file" type="file" accept=".lua,.luau,text/plain" hidden>
+          <span class="upload-icon" aria-hidden="true">↑</span>
+          <span class="drop-title">Drop a Lua file here</span>
+          <span class="drop-subtitle">or <u>choose a file</u> from your device</span>
+          <span class="drop-meta">.lua and .luau · up to 12 MB</span>
+        </label>
+        <div class="file-summary is-hidden" id="file-summary">
+          <span class="file-badge">LUA</span>
+          <div><strong id="file-name">source.lua</strong><span id="file-size">0 KB</span></div>
+          <button class="icon-button" id="remove-file" type="button" aria-label="Remove selected file">×</button>
+        </div>
+
+        <div class="privacy-card">
+          <span class="lock-icon" aria-hidden="true">◈</span>
+          <div><strong>Your code is not displayed</strong><p>It is read into memory, obfuscated, and held only for the download. No source or generated code is sent to a server.</p></div>
+        </div>
+      </div>
+
+      <div class="config-column">
+        <div class="section-kicker"><span>02</span><strong>Configuration</strong><em>Choose how it transforms</em></div>
+        <div class="mode-tabs" role="tablist" aria-label="Configuration mode">
+          <button class="mode-tab active" type="button" data-mode="preset" role="tab" aria-selected="true">Preset profiles</button>
+          <button class="mode-tab" type="button" data-mode="custom" role="tab" aria-selected="false">Custom pipeline</button>
+        </div>
+
+        <div id="preset-panel" class="config-panel">
+          <label class="field-label" for="preset-select">Profile</label>
+          <select id="preset-select" class="select-control">
+            <option value="Minify">Minify · smallest change</option>
+            <option value="Balanced" selected>Balanced · practical protection</option>
+            <option value="Phantom">Phantom · virtualized runtime</option>
+            <option value="Wraith">Wraith · stealth transforms</option>
+            <option value="Cipher">Cipher · encrypted constants</option>
+            <option value="Aegis">Aegis · sandbox resistance</option>
+            <option value="Titan">Titan · maximum protection</option>
+            <option value="TitanVM2">TitanVM2 · nonlinear VM</option>
+            <option value="StrongScalable">StrongScalable · large scripts</option>
+            <option value="Vmify">Vmify · custom VM baseline</option>
+          </select>
+          <p class="field-help" id="preset-description">A balanced profile for everyday scripts, with encrypted strings and integrity checks.</p>
+        </div>
+
+        <div id="custom-panel" class="config-panel is-hidden">
+          <p class="field-help custom-intro">Build a pipeline in execution order. The selected steps use the controls below; unchecked steps are never run.</p>
+          <div class="step-grid" id="step-grid" aria-label="Custom pipeline steps"></div>
+        </div>
+
+        <div class="settings-grid">
+          <label class="field"><span>Target syntax</span><select id="lua-version"><option value="Lua51" selected>Lua 5.1</option><option value="LuaU">Luau</option></select></label>
+          <label class="field"><span>Build seed</span><input id="seed" type="number" min="0" max="9007199254740991" value="424242" inputmode="numeric"><small>0 = fresh layout</small></label>
+          <label class="field field-wide"><span>Identifier prefix</span><input id="name-prefix" type="text" maxlength="20" value="" spellcheck="false"><small>Optional prefix for generated locals</small></label>
+          <label class="check-field field-wide"><input id="pretty-print" type="checkbox"><span>Readable spacing in the downloaded file</span></label>
+        </div>
+
+        <details class="advanced-settings" open>
+          <summary>Transformation controls <span>tune the selected pipeline</span></summary>
+          <div class="advanced-grid">
+            <label class="field"><span>Control-flow threshold</span><input id="control-threshold" type="number" min="0" max="1" step="0.05" value="0.4"><small>0–1, higher adds more mutations</small></label>
+            <label class="field"><span>Control-flow layers</span><input id="control-layers" type="number" min="1" max="4" step="1" value="1"></label>
+            <label class="field"><span>Opaque predicate threshold</span><input id="opaque-threshold" type="number" min="0" max="1" step="0.05" value="0.5"></label>
+            <label class="field"><span>Constant-array threshold</span><input id="constant-threshold" type="number" min="1" max="100" step="1" value="1"><small>Minimum repeated constants</small></label>
+            <label class="field"><span>Junk insertion chance</span><input id="junk-chance" type="number" min="0" max="1" step="0.05" value="0.15"></label>
+            <label class="field"><span>VM alias count</span><input id="vm-alias-count" type="number" min="1" max="4" step="1" value="1"></label>
+            <label class="check-field"><input id="vm-mask" type="checkbox"><span>Masked VM dispatch</span></label>
+            <label class="check-field"><input id="vm-affine" type="checkbox"><span>Affine VM dispatch</span></label>
+            <label class="check-field"><input id="vm-bounce" type="checkbox"><span>Bounce VM dispatch</span></label>
+            <label class="check-field"><input id="vm-nonlinear" type="checkbox"><span>Nonlinear VM dispatch</span></label>
+            <label class="check-field"><input id="strings-only" type="checkbox"><span>Keep constant array string-only</span></label>
+            <label class="check-field"><input id="tamper-stealth" type="checkbox"><span>Stealth integrity checks</span></label>
+          </div>
+        </details>
+
+        <button class="obfuscate-button" id="obfuscate" type="button" disabled><span>Obfuscate file</span><span class="button-arrow">→</span></button>
+        <div class="progress-wrap is-hidden" id="progress-wrap" aria-live="polite"><div class="progress-track"><span id="progress-bar"></span></div><p id="progress-label">Preparing the browser runtime…</p></div>
+        <div class="error-box is-hidden" id="error-box" role="alert"></div>
+      </div>
+    </section>
+
+    <section class="result-card is-hidden" id="result-card" aria-live="polite">
+      <div class="result-icon">✓</div>
+      <div class="result-copy"><p class="eyebrow">OBFUSCATION COMPLETE</p><h2>Your protected file is ready.</h2><p>The generated Lua is stored in memory and is not shown here. Press Download to save it to your device.</p></div>
+      <button class="download-button" id="download" type="button">Download <span>↓</span></button>
+    </section>
+
+    <footer class="site-footer"><span>FENGETHEUS / OPEN SOURCE LUA OBFUSCATOR</span><span>Built for private, local processing</span></footer>
+  </main>
+
+  <script src="vendor/luanode-vm.js"></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
