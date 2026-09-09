@@ -190,17 +190,59 @@ function TamperObfuscator:apply(ast)
 		return ast
 	end
 
-	-- Collect ALL leading do...end blocks (AntiTamper and/or AntiSandbox
-	-- both insert at position 1, so the last one to run is at position 1
-	-- and earlier ones get pushed down).
+	-- Collect only leading self-contained tamper blocks. AntiTamper and
+	-- AntiSandbox used to inject `do ... end`; their signed-zero fix changed
+	-- them to IIFEs (`(function() ... end)()`), which need their own function
+	-- constant table on stock Lua. A block may be moved into loadstring only
+	-- when it has no references to locals in the main chunk: those references
+	-- would otherwise become globals in the separately parsed payload.
+	local function iifeFunctionBody(stat)
+		if stat.kind == Ast.AstKind.FunctionCallStatement
+			and stat.base ~= nil
+			and stat.base.kind == Ast.AstKind.FunctionLiteralExpression
+		then
+			return stat.base.body
+		end
+		return nil
+	end
+
+	local function blockInnerScope(stat)
+		local functionBody = iifeFunctionBody(stat)
+		if functionBody ~= nil then
+			return functionBody.scope
+		end
+		if stat.kind == Ast.AstKind.DoStatement and stat.body ~= nil then
+			return stat.body.scope
+		end
+		return nil
+	end
+
+	local function isSelfContained(innerScope)
+		for targetScope, ids in pairs(innerScope.variablesFromHigherScopes) do
+			if not targetScope.isGlobal then
+				for _, count in pairs(ids) do
+					if count and count > 0 then
+						return false
+					end
+				end
+			end
+		end
+		return true
+	end
+
 	local tamperBlocks = {}
-	while #body.statements > 0 and body.statements[1].kind == Ast.AstKind.DoStatement do
-		tamperBlocks[#tamperBlocks + 1] = body.statements[1]
+	while #body.statements > 0 do
+		local stat = body.statements[1]
+		local innerScope = blockInnerScope(stat)
+		if innerScope == nil or not isSelfContained(innerScope) then
+			break
+		end
+		tamperBlocks[#tamperBlocks + 1] = stat
 		table.remove(body.statements, 1)
 	end
 
 	if #tamperBlocks == 0 then
-		logger:warn("TamperObfuscator: no do...end block found at top of body — skipping")
+		logger:warn("TamperObfuscator: no self-contained tamper block found at top of body — skipping")
 		return ast
 	end
 
@@ -208,12 +250,19 @@ function TamperObfuscator:apply(ast)
 	-- Each block is its own `do ... end` so they execute in sequence.
 	local blockSources = {}
 	for _, block in ipairs(tamperBlocks) do
-		local tempTop = Ast.TopNode(Ast.Block({block}, block.body.scope), ast.globalScope)
+		local innerScope = blockInnerScope(block)
+		local tempTop = Ast.TopNode(Ast.Block({block}, innerScope), ast.globalScope)
 		local unparser = Unparser:new({
 			LuaVersion = Enums.LuaVersion.Lua51,
 			PrettyPrint = false,
 		})
-		blockSources[#blockSources + 1] = unparser:unparse(tempTop)
+		local code = unparser:unparse(tempTop)
+		-- Adjacent serialized IIFEs need a statement separator; otherwise the
+		-- second opening parenthesis can be parsed as call syntax.
+		if code:sub(1, 1) == "(" then
+			code = ";" .. code
+		end
+		blockSources[#blockSources + 1] = code
 	end
 
 	local combinedSource = table.concat(blockSources, "\n")
@@ -233,25 +282,26 @@ function TamperObfuscator:apply(ast)
 	-- Build the polymorphic decoder source.
 	local decoderSource = buildDecoder(escapedPayload, keyBytes, self.XORLayers)
 
-	-- Wrap the decoder source in a `do ... end` block, exactly like
-	-- AntiTamper does, so there is a single DoStatement with a single
-	-- scope to parent. This avoids the "Could not resolve Scope" error
-	-- that occurs when inserting many free-standing statements directly
-	-- into the body.
-	local wrappedSource = "do\n" .. decoderSource .. "\nend"
+	-- Use an IIFE rather than `do ... end`: the decoder has +0 literals and
+	-- must not share the main chunk's constant table with a user -0.0 literal.
+	local wrappedSource = "(function()\n" .. decoderSource .. "\nend)()"
 
 	-- Parse the wrapped decoder source into an AST.
 	local parser = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 })
 	local parsed = parser:parse(wrappedSource)
-	local doStat = parsed.body.statements[1]
+	local decoderStat = parsed.body.statements[1]
+	local decoderBody = iifeFunctionBody(decoderStat)
+	if decoderBody == nil then
+		error("TamperObfuscator: decoder template parsed to an unexpected statement shape", 0)
+	end
 
-	-- Parent the decoder block's scope to the main body scope so all
+	-- Parent the decoder function's scope to the main body scope so global
 	-- references resolve correctly.
-	doStat.body.scope:setParent(body.scope)
+	decoderBody.scope:setParent(body.scope)
 
-	-- Insert the decoder do...end block at position 1, replacing all the
+	-- Insert the decoder IIFE at position 1, replacing all the
 	-- original AntiTamper/AntiSandbox blocks that were removed above.
-	table.insert(body.statements, 1, doStat)
+	table.insert(body.statements, 1, decoderStat)
 
 	return ast
 end
