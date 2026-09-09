@@ -1,4 +1,4 @@
-/* Fengetheus web client. The Lua compiler is executed in LuaNode-VM in this
+/* Fengetheus web client. The Lua compiler is executed in a WebAssembly Lua VM in this
  * browser tab; the generated source is kept in memory and is never rendered. */
 (() => {
   "use strict";

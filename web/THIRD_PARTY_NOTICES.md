@@ -1,29 +1,7 @@
 # Third-party notices
 
-`vendor/luanode-vm.js` is a browser bundle generated from [Xyraniz/LuaNode-VM](https://github.com/Xyraniz/LuaNode-VM) at commit `8df193b5147f810d4bdaf875ba1280477b771408`.
+`vendor/wasmoon/index.js` and `vendor/wasmoon/glue.wasm` are distributed from [Wasmoon](https://github.com/ceifa/wasmoon), version 1.16.0. Wasmoon embeds the official Lua runtime compiled to WebAssembly.
 
-LuaNode-VM is Copyright (c) 2026 Xyraniz and is distributed under the MIT License:
+Wasmoon is Copyright (c) 2020 Ceifa and contributors and is distributed under the MIT License. The complete license is available at https://github.com/ceifa/wasmoon/blob/master/LICENSE.
 
-```text
-MIT License
-
-Copyright (c) 2026 Xyraniz
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+The previous LuaNode-VM browser bundle is no longer loaded by the web client; the Wasmoon worker is substantially faster for the compiler workload while preserving local processing.
