@@ -43,6 +43,11 @@ NumbersToExpressions.SettingsDescriptor = {
 		aliases = { "NumberRepresentationMutaton" },
 	},
 
+	MixedArithmetic = {
+		type = "boolean",
+		default = false,
+	},
+
 	AllowedNumberRepresentations = {
 		type = "table",
 		default = {"hex", "scientific", "normal"},
@@ -191,6 +196,45 @@ function NumbersToExpressions:init(_)
 			)
 		end,
 	}
+
+end
+
+local function createMixedArithmeticExpression(val)
+	-- A bounded mixed-arithmetic identity. Verify the IEEE-754 result before
+	-- emitting it; values outside this range fall back to other generators.
+	if type(val) ~= "number" or val ~= val or val == math.huge or val == -math.huge
+		or math.abs(val) > 1000000 then
+		return nil
+	end
+
+	local offset = math.random(-256, 256)
+	if offset == 0 then offset = 1 end
+	local scale = math.random(2, 9)
+	local shifted = val + offset
+	local product = shifted * scale
+	local offsetProduct = offset * scale
+	if not (fitsInt32(shifted) and fitsInt32(product) and fitsInt32(offsetProduct)) then
+		return nil
+	end
+
+	local ok, recovered = pcall(function()
+		return (product - offsetProduct) / scale
+	end)
+	if not ok or recovered ~= val then return nil end
+
+	return Ast.DivExpression(
+		Ast.SubExpression(
+			Ast.MulExpression(
+				Ast.AddExpression(Ast.NumberExpression(val), Ast.NumberExpression(offset), false),
+				Ast.NumberExpression(scale),
+				false
+			),
+			Ast.NumberExpression(offsetProduct),
+			false
+		),
+		Ast.NumberExpression(scale),
+		false
+	)
 end
 
 function NumbersToExpressions:CreateNumberExpression(val, depth)
@@ -201,6 +245,10 @@ function NumbersToExpressions:CreateNumberExpression(val, depth)
 	-- way to guarantee the sign bit survives obfuscation.
 	if isNegativeZero(val) then
 		return Ast.NumberExpression(val)
+	end
+	if depth == 0 and self.MixedArithmetic then
+		local mixed = createMixedArithmeticExpression(val)
+		if mixed then return mixed end
 	end
 
 	if depth > 0 and math.random() >= self.InternalThreshold or depth > 15 then

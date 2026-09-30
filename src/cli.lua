@@ -62,11 +62,12 @@ local function print_help()
 	print("  --version, -v          Print CLI version")
 	print("")
 	print("Obfuscation options:")
-	print("  --preset, --p <name>   Use preset (e.g. Minify, Balanced, Phantom, Cipher, Aegis, Titan, TitanVM2)")
+	print("  --preset, --p <name>   Use preset (Minify, Balanced, Phantom, Wraith, Cipher, Aegis, Titan, TitanVM2, StrongScalable, Vmify)")
 	print("  --config, --c <file>   Use custom config Lua file")
 	print("  --out, --o <file>      Set output path")
 	print("  --Lua51                Force Lua 5.1 target")
 	print("  --LuaU                 Force LuaU target")
+	print("  (without either flag, Luau-only syntax is detected automatically)")
 	print("  --pretty               Pretty print output")
 	print("  --nocolors             Disable colored logs")
 	print("  --saveerrors           Persist parser errors to file")
@@ -164,6 +165,7 @@ local function run_cli()
 	-- CLI
 	local config, sourceFile, outFile, luaVersion, prettyPrint, seed
 	local selectedPresetName
+	local configHasExplicitLuaVersion = false
 
 	Fengetheus.colors.enabled = true
 
@@ -188,6 +190,7 @@ local function run_cli()
 
 				selectedPresetName = tostring(arg[i])
 				config = preset
+				configHasExplicitLuaVersion = false
 			elseif curr == "--config" or curr == "--c" then
 				i = i + 1
 				if not arg[i] or arg[i]:sub(1, 1) == "-" then
@@ -206,6 +209,7 @@ local function run_cli()
 				end
 				config = func()
 				selectedPresetName = nil
+				configHasExplicitLuaVersion = type(config) == "table" and config.LuaVersion ~= nil
 			elseif curr == "--out" or curr == "--o" then
 				i = i + 1
 				if not arg[i] or arg[i]:sub(1, 1) == "-" then
@@ -296,6 +300,17 @@ local function run_cli()
 	end
 
 	local source = table.concat(lines_from(sourceFile), "\n")
+
+	if not luaVersion and not configHasExplicitLuaVersion then
+		local Parser = require("fengetheus.parser")
+		local detected, details = Parser.detectLuaVersion(source)
+		if detected then
+			config.LuaVersion = detected
+			Fengetheus.Logger:info(string.format("Detected %s-only syntax; using %s", detected == "LuaU" and "Luau" or "Lua 5.1", detected))
+		elseif details.Lua51 and details.LuaU then
+			Fengetheus.Logger:info(string.format("Lua dialect is ambiguous; keeping configured target %s", tostring(config.LuaVersion or "Lua51")))
+		end
+	end
 
 	local pipeline = Fengetheus.Pipeline:fromConfig(config)
 	local out = pipeline:apply(source, sourceFile)

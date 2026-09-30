@@ -165,6 +165,48 @@ function Parser:parse(code)
 	return ast;
 end
 
+-- Detect a dialect only when its grammar distinguishes the source. Ordinary
+-- Lua 5.1 parses as Luau too, so callers should keep their configured target
+-- when both parsers accept the file.
+function Parser.detectLuaVersion(code)
+	if type(code) ~= "string" then
+		return nil, { Lua51 = false, LuaU = false, Lua51Error = "source must be a string", LuaUError = "source must be a string" }
+	end
+
+	local function canParse(luaVersion)
+		local oldErrorCallback = logger.errorCallback
+		local oldLogLevel = logger.logLevel
+		logger.logLevel = logger.LogLevel.Error
+		logger.errorCallback = function(...)
+			local message = {}
+			for i = 1, select("#", ...) do
+				message[i] = tostring(select(i, ...))
+			end
+			error(table.concat(message, " "), 0)
+		end
+		local ok, result = pcall(function()
+			return Parser:new({ LuaVersion = luaVersion }):parse(code)
+		end)
+		logger.errorCallback = oldErrorCallback
+		logger.logLevel = oldLogLevel
+		return ok, ok and nil or tostring(result)
+	end
+
+	local lua51, lua51Error = canParse(LuaVersion.Lua51)
+	local luau, luauError = canParse(LuaVersion.LuaU)
+	local details = {
+		Lua51 = lua51,
+		LuaU = luau,
+		Lua51Error = lua51Error,
+		LuaUError = luauError,
+	}
+
+	if lua51 ~= luau then
+		return lua51 and LuaVersion.Lua51 or LuaVersion.LuaU, details
+	end
+	return nil, details
+end
+
 -- Parse a Code Block
 function Parser:block(parentScope, currentLoop, scope)
 	scope = scope or Scope:new(parentScope);

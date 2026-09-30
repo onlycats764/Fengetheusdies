@@ -15,8 +15,10 @@ return {
 	ControlFlowMutation = require("fengetheus.steps.ControlFlowMutation");
 	EncryptStrings = require("fengetheus.steps.EncryptStrings");
 	ExtractGlobals = require("fengetheus.steps.ExtractGlobals");
+	InlineFunctions = require("fengetheus.steps.InlineFunctions");
 	LocalCaching = require("fengetheus.steps.LocalCaching");
 	NumbersToExpressions = require("fengetheus.steps.NumbersToExpressions");
+	UnrollLoops = require("fengetheus.steps.UnrollLoops");
 	OpaquePredicate = require("fengetheus.steps.OpaquePredicate");
 	ProxifyLocals = require("fengetheus.steps.ProxifyLocals");
 	RewriteNamecalls = require("fengetheus.steps.RewriteNamecalls");

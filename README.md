@@ -10,7 +10,7 @@ Fengetheus is a local command-line Lua obfuscator built around the Prometheus co
 
 - Local file-to-file obfuscation with no remote service required.
 
-- Presets for different transformation levels: `Minify`, `Weak`, `WeakStealth`, `Medium`, `Strong`, and `StrongScalable`.
+- Presets for different transformation levels: `Minify`, `Balanced`, `Phantom`, `Wraith`, `Cipher`, `Aegis`, `Titan`, `TitanVM2`, and `StrongScalable`.
 
 - Lua 5.1 and Luau target selection.
 
@@ -45,13 +45,13 @@ LUA_BIN=lua5.3 bin/fengetheus --help
 Obfuscate a source file with a preset and an explicit output path:
 
 ```
-bin/fengetheus --preset Medium --out output.lua input.lua
+bin/fengetheus --preset Balanced --out output.lua input.lua
 ```
 
 The launcher can also be called directly through Lua:
 
 ```
-lua src/cli.lua --preset Strong input.lua
+lua src/cli.lua --preset Titan input.lua
 ```
 
 When `--out` is omitted, Fengetheus writes the result beside the input file using the `.obfuscated.lua` suffix. If neither a preset nor a custom configuration is provided, the `Minify` preset is used.
@@ -60,13 +60,16 @@ When `--out` is omitted, Fengetheus writes the result beside the input file usin
 
 | Preset | Intended use |
 | --- | --- |
-| `Minify` | Reduce formatting and output size without adding the heavier obfuscation layers. |
-| `Weak` | Apply a light VM obfuscation pipeline with integrity checks and lower transformation overhead. |
-| `WeakStealth` | Weak-equivalent runtime cost with indirect integrity-API resolution and a camouflaged tamper-failure path. |
-| `Medium` | Apply multiple protection and transformation layers for a balanced profile. |
-| `Strong` | Apply the most comprehensive standard pipeline, including VM-based transformation, string encryption, anti-tamper logic, local proxying, constant-array transformations, numeric expression mutation, and function wrapping. |
-| `StrongVM2` | Use the Strong pipeline with randomized virtual-register layout, validated VM IR materialization, nonlinear bucket-encoded VM states, bounded multi-entry bounce trampolines, masked dispatcher bounds, and a bounded second lookup-indirection layer for encrypted strings. |
-| `StrongScalable` | Use a strong, more scalable profile for large scripts by omitting transformation layers that can produce excessive local-variable or nesting depth. |
+| `Minify` | Simplify and minify code without enabling the heavier obfuscation steps. |
+| `Balanced` | Apply AST transforms without virtualizing the full program; includes the bounded inlining and loop optimizations. |
+| `Phantom` | Apply the VM-based pipeline with string, number, and control-flow transformations. |
+| `Wraith` | Use a different step order with flow mutation, string splitting, VM conversion, and integrity checks. |
+| `Cipher` | Apply VM, string, anti-tamper, and constant transformations in a distinct order. |
+| `Aegis` | Apply AST hardening without the VM step. |
+| `Titan` | Use the most comprehensive standard pipeline. |
+| `TitanVM2` | Use Titan with the second-generation VM dispatch settings. |
+| `StrongScalable` | Use a strong profile for large scripts while avoiding the heaviest scope and nesting transforms. |
+| `Vmify` | Isolated VM test preset. |
 
 Obfuscation changes code structure and may affect size, performance, or compatibility. Test the generated file with the interpreter and runtime environment that will execute it. Obfuscation is not a substitute for access control, secret management, or a secure execution boundary.
 
@@ -86,6 +89,19 @@ Obfuscation changes code structure and may affect size, performance, or compatib
 | `--version`, `-v` | Print the configured CLI version. |
 | `--help`, `-h` | Print the complete help message. |
 | `update` | Run the official Prometheus updater. |
+
+Without a forced target or a custom configuration that sets `LuaVersion`, the
+CLI parses the source as both Lua 5.1 and Luau. It switches targets only when
+one grammar accepts the source and the other rejects it; shared syntax keeps
+the preset's target. The parser API exposes the same check as
+`Fengetheus.Parser.detectLuaVersion(source)`, returning a unique version or
+`nil` when the source is ambiguous, plus per-dialect parse results.
+
+The `Balanced` preset also enables bounded local-function inlining, unrolling
+of small numeric loops whose index is unused, and a checked mixed-arithmetic
+number expression. The inline and unroll passes skip cases outside their safe
+subset; they can also be added to custom configurations as `InlineFunctions`
+and `UnrollLoops` steps.
 
 For the complete command syntax, run:
 
@@ -120,7 +136,7 @@ On Windows, the equivalent Lumora-backed regression harness is available as
 the sibling `work/Lumora` checkout; pass `-Lumora` to select another binary:
 
 ```
-powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced,StrongVM2 -Lumora C:\path\to\lumora.exe
+powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced,TitanVM2 -Lumora C:\path\to\lumora.exe
 ```
 
 To exercise the randomised transforms across multiple deterministic builds,

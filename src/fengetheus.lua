@@ -67,6 +67,7 @@ end
 
 -- Require Fengetheus Submodules
 local Pipeline = require("fengetheus.pipeline");
+local Parser = require("fengetheus.parser");
 local highlight = require("highlightlua");
 local colors = require("colors");
 local Logger = require("logger");
@@ -80,6 +81,7 @@ package.path = oldPkgPath;
 -- Export
 return {
     Pipeline = Pipeline;
+    Parser = Parser;
     colors = colors;
     Config = util.readonly(Config); -- Readonly
     Logger = Logger;

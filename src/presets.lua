@@ -78,7 +78,9 @@ local presets = {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
+			{ Name = "InlineFunctions", Settings = { MaxArguments = 4 } },
 			{ Name = "ConstantFolding", Settings = {} },
+			{ Name = "UnrollLoops", Settings = { MaxIterations = 8 } },
 			{ Name = "DeadCodeElimination", Settings = {} },
 			{ Name = "RedundantOperationElimination", Settings = {} },
 			{ Name = "LocalCaching", Settings = {} },
@@ -95,7 +97,7 @@ local presets = {
 					LocalWrapperThreshold = 0,
 				},
 			},
-			{ Name = "NumbersToExpressions", Settings = {} },
+			{ Name = "NumbersToExpressions", Settings = { MixedArithmetic = true } },
 			{ Name = "AntiTamper", Settings = { UseDebug = false } },
 			{ Name = "TamperObfuscator", Settings = { XORLayers = 1 } },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
