@@ -1,11 +1,13 @@
 local Step = require("fengetheus.step")
 local Ast = require("fengetheus.ast")
 local visitast = require("fengetheus.visitast")
+local Attributes = require("fengetheus.attributes")
+local logger = require("logger")
 local AstKind = Ast.AstKind
 
 local InlineFunctions = Step:extend()
 InlineFunctions.Name = "Inline Functions"
-InlineFunctions.Description = "Inline small local functions with one pure return expression"
+InlineFunctions.Description = "Inline small local functions with equivalent single- and multiple-return call sites"
 InlineFunctions.SettingsDescriptor = {
 	MaxArguments = { type = "number", default = 4, min = 0, max = 16 },
 }
@@ -51,18 +53,73 @@ local function candidateFor(declarations, expr)
 	return scope and scope[expr.id]
 end
 
-local function makeCandidate(statement, maxArguments)
-	local body = statement.body
-	if #statement.args > maxArguments then return nil end
-	if #body.statements ~= 1 or body.statements[1].kind ~= AstKind.ReturnStatement then return nil end
-	local returned = body.statements[1].args
-	if #returned ~= 1 then return nil end
-
-	local params, arguments = {}, {}
-	for index, arg in ipairs(statement.args) do
+local function parameterIndexMap(arguments)
+	local params = {}
+	for index, arg in ipairs(arguments) do
 		if arg.kind ~= AstKind.VariableExpression then return nil end
 		params[arg.scope] = params[arg.scope] or {}
 		params[arg.scope][arg.id] = index
+	end
+	return params
+end
+
+local function varargForward(statement)
+	local args = statement.args
+	if #args < 1 or args[#args].kind ~= AstKind.VarargExpression then return nil end
+	local fixedCount = #args - 1
+	local returned = statement.body.statements[1].args
+	if #returned ~= fixedCount + 1 or returned[#returned].kind ~= AstKind.VarargExpression then
+		return nil
+	end
+	for index = 1, fixedCount do
+		local arg, value = args[index], returned[index]
+		if value.kind ~= AstKind.VariableExpression or value.scope ~= arg.scope or value.id ~= arg.id then
+			return nil
+		end
+	end
+	return fixedCount
+end
+
+local function makeCandidate(statement, maxArguments)
+	local body = statement.body
+	local attribute = statement.fengAttributes and statement.fengAttributes.inline
+	if attribute == "disabled" or (statement.fengAttributes and statement.fengAttributes.optimize == false) then return nil end
+	if #body.statements ~= 1 or body.statements[1].kind ~= AstKind.ReturnStatement then return nil end
+	local returned = body.statements[1].args
+	local isVararg = statement.args[#statement.args]
+		and statement.args[#statement.args].kind == AstKind.VarargExpression
+	local fixedArgumentCount = #statement.args - (isVararg and 1 or 0)
+	if fixedArgumentCount > maxArguments then return nil end
+	local forwardingCount = varargForward(statement)
+	if isVararg then
+		if forwardingCount == nil then return nil end
+		local fixedArgs = {}
+		for index = 1, forwardingCount do fixedArgs[index] = statement.args[index] end
+		local params = parameterIndexMap(fixedArgs)
+		if not params then return nil end
+		return {
+			statement = statement,
+			scope = statement.scope,
+			id = statement.id,
+			params = params,
+			arguments = fixedArgs,
+			returns = returned,
+			varargForward = true,
+			fixedArgumentCount = forwardingCount,
+			captures = {},
+			references = 0,
+			directCalls = 0,
+			eligibleCalls = 0,
+			written = false,
+			inlineMode = attribute,
+		}
+	end
+	if #returned < 1 then return nil end
+
+	local params = parameterIndexMap(statement.args)
+	if not params then return nil end
+	local arguments = {}
+	for index, arg in ipairs(statement.args) do
 		arguments[index] = arg
 	end
 
@@ -87,7 +144,9 @@ local function makeCandidate(statement, maxArguments)
 		return false
 	end
 
-	if not supported(returned[1]) then return nil end
+	for _, expr in ipairs(returned) do
+		if not supported(expr) then return nil end
+	end
 	return {
 		statement = statement,
 		scope = statement.scope,
@@ -96,11 +155,12 @@ local function makeCandidate(statement, maxArguments)
 		arguments = arguments,
 		uses = uses,
 		captures = captures,
-		expression = returned[1],
+		returns = returned,
 		references = 0,
 		directCalls = 0,
 		eligibleCalls = 0,
 		written = false,
+		inlineMode = attribute,
 	}
 end
 
@@ -113,12 +173,15 @@ local function resolveVariable(scope, name)
 	return nil
 end
 
-local function canInline(candidate, call, callScope)
-	if #call.args ~= #candidate.arguments then return false end
+local function canInline(candidate, call, callScope, captureArguments)
+	if candidate.varargForward then return false end
+	if not captureArguments and #call.args ~= #candidate.arguments then return false end
 	for i, arg in ipairs(call.args) do
-		if not simpleArgument(arg) then return false end
-		if candidate.uses[i] and candidate.uses[i] > 1 and not literal(arg) then
-			return false
+		if not captureArguments then
+			if not simpleArgument(arg) then return false end
+			if candidate.uses[i] and candidate.uses[i] > 1 and not literal(arg) then
+				return false
+			end
 		end
 	end
 	for _, capture in ipairs(candidate.captures) do
@@ -134,7 +197,9 @@ local function cloneExpression(expr, params, arguments, callScope, trackReferenc
 		local byId = params and params[expr.scope]
 		local argumentIndex = byId and byId[expr.id]
 		if argumentIndex then
-			return cloneExpression(arguments[argumentIndex], nil, nil, callScope, false)
+			local argument = arguments[argumentIndex]
+			if type(argument) == "function" then return argument() end
+			return cloneExpression(argument, nil, nil, callScope, false)
 		elseif trackReferences then
 			callScope:addReferenceToHigherScope(expr.scope, expr.id)
 		end
@@ -151,6 +216,14 @@ local function cloneExpression(expr, params, arguments, callScope, trackReferenc
 	return copy
 end
 
+local function canInlineVarargReturn(candidate, call)
+	if not candidate.varargForward then return false end
+	-- A missing fixed argument becomes an observable nil in the forwarded
+	-- return list. Do not guess whether a final call expression expands enough
+	-- values to fill it; that case stays unmodified.
+	return candidate.fixedArgumentCount == 0 or #call.args >= candidate.fixedArgumentCount
+end
+
 function InlineFunctions:init() end
 
 function InlineFunctions:apply(ast)
@@ -158,6 +231,9 @@ function InlineFunctions:apply(ast)
 	visitast(ast, function(node)
 		if node.kind == AstKind.LocalFunctionDeclaration then
 			local candidate = makeCandidate(node, self.MaxArguments)
+			if node.fengAttributes and node.fengAttributes.inline == "checked" and not candidate then
+				logger:error("INLINE(checked) requires a local function with a supported return-only body")
+			end
 			if candidate then
 				declarations[node.scope] = declarations[node.scope] or {}
 				declarations[node.scope][node.id] = candidate
@@ -167,7 +243,7 @@ function InlineFunctions:apply(ast)
 	end)
 	if #candidates == 0 then return ast end
 
-	local eligibleCalls = {}
+	local eligibleCalls, eligibleReturns = {}, {}
 	visitast(ast, function(node, data)
 		if node.kind == AstKind.VariableExpression then
 			local candidate = candidateFor(declarations, node)
@@ -179,9 +255,26 @@ function InlineFunctions:apply(ast)
 			local candidate = candidateFor(declarations, node.base)
 			if candidate then
 				candidate.directCalls = candidate.directCalls + 1
-				if canInline(candidate, node, data.scope) then
+				if Attributes.optimizationEnabled(data)
+					and #candidate.returns == 1 and canInline(candidate, node, data.scope) then
 					candidate.eligibleCalls = candidate.eligibleCalls + 1
 					eligibleCalls[node] = candidate
+				end
+			end
+		end
+	end, function(node, data)
+		if node.kind == AstKind.ReturnStatement and #node.args == 1
+			and node.args[1].kind == AstKind.FunctionCallExpression then
+			local call = node.args[1]
+			local candidate = candidateFor(declarations, call.base)
+			if Attributes.optimizationEnabled(data) and candidate
+				and (candidate.varargForward or #candidate.returns > 1 or not eligibleCalls[call]) then
+				local eligible = candidate.varargForward
+					and canInlineVarargReturn(candidate, call)
+					or (not candidate.varargForward and canInline(candidate, call, data.scope, true))
+				if eligible and not eligibleCalls[call] then
+					candidate.eligibleCalls = candidate.eligibleCalls + 1
+					eligibleReturns[node] = { candidate = candidate, call = call }
 				end
 			end
 		end
@@ -193,14 +286,47 @@ function InlineFunctions:apply(ast)
 			and candidate.directCalls > 0
 			and candidate.references == candidate.directCalls
 			and candidate.eligibleCalls == candidate.directCalls
+		if candidate.inlineMode == "checked" and not candidate.remove then
+			logger:error("INLINE(checked) could not inline every use of the marked function")
+		end
 		if candidate.remove then removable[candidate.statement] = true end
 	end
 
 	visitast(ast, nil, function(node, data)
+		if not Attributes.optimizationEnabled(data) then return nil end
 		if node.kind == AstKind.FunctionCallExpression then
 			local candidate = eligibleCalls[node]
 			if candidate then
-				return cloneExpression(candidate.expression, candidate.params, node.args, data.scope, true)
+				return cloneExpression(candidate.returns[1], candidate.params, node.args, data.scope, true)
+			end
+		elseif node.kind == AstKind.ReturnStatement then
+			local inline = eligibleReturns[node]
+			if inline then
+				local candidate, call = inline.candidate, inline.call
+				if candidate.varargForward then
+					-- This exact forwarding pattern returns each incoming argument
+					-- once and in order; keeping the expression list also preserves
+					-- a final multi-valued call/vararg expression.
+					return Ast.ReturnStatement(call.args)
+				end
+
+				local ids, arguments = {}, {}
+				local bindingCount = math.max(1, #candidate.arguments)
+				for index = 1, bindingCount do
+					ids[index] = data.scope:addVariable(nil, nil)
+				end
+				for index = 1, #candidate.arguments do
+					local id = ids[index]
+					arguments[index] = function()
+						return Ast.VariableExpression(data.scope, id)
+					end
+				end
+				local results = {}
+				for index, expression in ipairs(candidate.returns) do
+					results[index] = cloneExpression(expression, candidate.params, arguments, data.scope, true)
+				end
+				local binding = Ast.LocalVariableDeclaration(data.scope, ids, call.args)
+				return binding, Ast.ReturnStatement(results)
 			end
 		elseif node.kind == AstKind.Block then
 			local kept = {}

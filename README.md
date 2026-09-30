@@ -103,6 +103,11 @@ number expression. The inline and unroll passes skip cases outside their safe
 subset; they can also be added to custom configurations as `InlineFunctions`
 and `UnrollLoops` steps.
 
+Function and loop directives can opt out of these optimizer passes, require a
+safe inline/unroll, or allow best-effort optimization. See
+[`docs/function-attributes.md`](./docs/function-attributes.md) for syntax,
+inheritance, checked diagnostics, and the current per-function VM boundary.
+
 For the complete command syntax, run:
 
 ```

@@ -26,8 +26,9 @@ local unrolledAst, unrolled = applyStep(
 	"UnrollLoops"
 )
 assert(not unrolled:find("for", 1, true), "bounded loop with an unused index was not unrolled")
-assert(unrolledAst.body.statements[2].body.isFunctionBlock == false,
-	"loop inspection marked the generated block as a function block")
+local unrolledRepeat = unrolledAst.body.statements[2].body.statements[2].body.statements[1]
+assert(unrolledRepeat.kind == "RepeatStatement" and unrolledRepeat.body.isFunctionBlock == false,
+	"loop inspection marked the generated loop body as a function block")
 
 local _, retainedIndexLoop = applyStep(
 	"local total = 0; for i = 1, 3 do total = total + i end",
@@ -36,10 +37,16 @@ local _, retainedIndexLoop = applyStep(
 assert(retainedIndexLoop:find("for", 1, true), "loop index use should prevent unrolling")
 
 local _, retainedBreakLoop = applyStep(
-	"for i = 1, 3 do if i == 2 then break end end",
+	"local count = 0; for _ = 1, 3 do count = count + 1; if count == 2 then break end end",
 	"UnrollLoops"
 )
-assert(retainedBreakLoop:find("for", 1, true), "loop exits should prevent unrolling")
+assert(not retainedBreakLoop:find("for _", 1, true), "break should be lowered while unrolling")
+
+local _, computedBounds = applyStep(
+	"local total = 0; for _ = 1 + 1, 2 * 3 do total = total + 1 end",
+	"UnrollLoops"
+)
+assert(not computedBounds:find("for _", 1, true), "constant arithmetic bounds should be unrolled")
 
 math.randomseed(424242)
 local mixedAst = Parser:new({ LuaVersion = "Lua51" }):parse("return 13")

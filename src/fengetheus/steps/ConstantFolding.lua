@@ -60,6 +60,7 @@
 local Step = require("fengetheus.step")
 local Ast = require("fengetheus.ast")
 local visitast = require("fengetheus.visitast")
+local Attributes = require("fengetheus.attributes")
 local AstKind = Ast.AstKind
 
 local ConstantFolding = Step:extend()
@@ -351,7 +352,8 @@ function ConstantFolding:apply(ast)
 	local foldUnary = function(e) return self:foldUnary(e) end
 	local foldIfElse = function(e) return self:foldIfElse(e) end
 
-	visitast(ast, nil, function(node, _)
+	visitast(ast, nil, function(node, data)
+		if not Attributes.optimizationEnabled(data) then return nil end
 		if not (node and node.isExpression) then
 			return nil
 		end

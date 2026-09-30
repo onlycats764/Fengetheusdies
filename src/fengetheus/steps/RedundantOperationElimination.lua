@@ -47,6 +47,7 @@
 local Step = require("fengetheus.step")
 local Ast = require("fengetheus.ast")
 local visitast = require("fengetheus.visitast")
+local Attributes = require("fengetheus.attributes")
 local AstKind = Ast.AstKind
 
 local unpack = table.unpack or unpack
@@ -126,7 +127,8 @@ function RedundantOperationElimination:apply(ast)
 	local foldDup = self.FoldDuplicateBoolean
 	local removeSelf = self.RemoveSelfAssignment
 
-	local function exprPostvisit(node, _)
+	local function exprPostvisit(node, data)
+		if not Attributes.optimizationEnabled(data) then return nil end
 		if not (node and node.isExpression) then return nil end
 		if threshold < 1 and math.random() > threshold then
 			return nil
@@ -157,7 +159,8 @@ function RedundantOperationElimination:apply(ast)
 		return nil
 	end
 
-	local function stmtPostvisit(stmt, _)
+	local function stmtPostvisit(stmt, data)
+		if not Attributes.optimizationEnabled(data) then return stmt end
 		if removeSelf and stmt.kind == AstKind.AssignmentStatement then
 			-- `x = x` with a single LHS/RHS pair where both are the same
 			-- simple variable.
@@ -174,7 +177,8 @@ function RedundantOperationElimination:apply(ast)
 		return stmt
 	end
 
-	local function blockPostvisit(block, _)
+	local function blockPostvisit(block, data)
+		if not Attributes.optimizationEnabled(data) then return block end
 		if block.statements == nil then return block end
 		local kept = {}
 		for _, st in ipairs(block.statements) do

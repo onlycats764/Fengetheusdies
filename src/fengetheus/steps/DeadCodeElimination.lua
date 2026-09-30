@@ -64,6 +64,7 @@
 local Step = require("fengetheus.step")
 local Ast = require("fengetheus.ast")
 local visitast = require("fengetheus.visitast")
+local Attributes = require("fengetheus.attributes")
 local AstKind = Ast.AstKind
 
 -- Lua 5.3 (host) compat.
@@ -214,6 +215,7 @@ function DeadCodeElimination:apply(ast)
 	-- Statement postvisit: returns 0, 1, or many replacement statements.
 	-- To delete, return REMOVED (a single sentinel value).
 	local function stmtPostvisit(stmt, data)
+		if not Attributes.optimizationEnabled(data) then return stmt end
 		local k = stmt.kind
 
 		if k == AstKind.IfStatement and self.FoldConstantIf then
@@ -277,6 +279,7 @@ function DeadCodeElimination:apply(ast)
 	-- Block postvisit: filter REMOVED sentinels and unreachable statements
 	-- after a terminator.
 	local function blockPostvisit(block, data)
+		if not Attributes.optimizationEnabled(data) then return block end
 		if block.statements == nil then return block end
 		local kept = {}
 		local terminated = false

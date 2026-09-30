@@ -9,6 +9,7 @@ local Enums = require("fengetheus.enums");
 local util = require("fengetheus.util");
 local Parser = require("fengetheus.parser");
 local Unparser = require("fengetheus.unparser");
+local Attributes = require("fengetheus.attributes");
 local logger = require("logger");
 
 local NameGenerators = require("fengetheus.namegenerators");
@@ -220,6 +221,22 @@ function Pipeline:apply(code, filename)
 
 	local sourceLen = string.len(code);
 	local ast = self.parser:parse(code);
+	local _, attributeRequirements = Attributes.prepare(ast)
+	for name, required in pairs(attributeRequirements) do
+		if required then
+			local displayName = name == "inline" and "Inline Functions" or "Unroll Loops"
+			local configured = false
+			for _, step in ipairs(self.steps) do
+				if step.Name == displayName then
+					configured = true
+					break
+				end
+			end
+			if not configured then
+				logger:error(string.format("FENG_ATTRIBUTES requested %s, but that step is not enabled in the pipeline", name))
+			end
+		end
+	end
 
 	local parserTimeDiff = gettime() - parserStartTime;
 	logger:info(string.format("Parsing Done in %.2f seconds", parserTimeDiff));

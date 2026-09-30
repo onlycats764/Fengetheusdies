@@ -70,6 +70,7 @@
 local Step = require("fengetheus.step")
 local Ast = require("fengetheus.ast")
 local visitast = require("fengetheus.visitast")
+local Attributes = require("fengetheus.attributes")
 local AstKind = Ast.AstKind
 
 local LocalCaching = Step:extend()
@@ -539,10 +540,11 @@ function LocalCaching:apply(ast)
 	local minOcc = self.MinOccurrences
 	local chance = self.Chance
 
-	local function postvisit(node)
+	local function postvisit(node, data)
 		if node.kind ~= AstKind.Block then
 			return node
 		end
+		if not Attributes.optimizationEnabled(data) then return node end
 		local statements = node.statements
 		local scope = node.scope
 		if not scope then return node end
