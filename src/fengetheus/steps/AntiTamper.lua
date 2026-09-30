@@ -102,7 +102,88 @@ local function failureLoop(stealth, localName)
 	return "while true do end;"
 end
 
-local function generateSanityCheck()
+local nativeGlobalReferences = {
+	"assert", "error", "getmetatable", "ipairs", "next", "pairs", "pcall",
+	"rawequal", "rawget", "rawset", "select", "setmetatable", "tonumber",
+	"tostring", "type", "xpcall", "loadstring", "iscclosure", "islclosure",
+	"newcclosure", "clonefunction", "isfunctionhooked", "checkcaller", "getfenv",
+	"setfenv", "unpack",
+}
+
+local referenceLibraries = {
+	{ name = "string", ref = "stringLibrary", members = {
+		{ name = "byte", ref = "stringByte" }, { name = "char", ref = "stringChar" },
+		{ name = "dump", ref = "stringDump" }, { name = "find", ref = "stringFind" },
+		{ name = "format", ref = "stringFormat" }, { name = "gmatch", ref = "stringGmatch" },
+		{ name = "gsub", ref = "stringGsub" }, { name = "len", ref = "stringLen" },
+		{ name = "lower", ref = "stringLower" }, { name = "rep", ref = "stringRep" },
+		{ name = "reverse", ref = "stringReverse" }, { name = "sub", ref = "stringSub" },
+		{ name = "upper", ref = "stringUpper" },
+	} },
+	{ name = "table", ref = "tableLibrary", members = {
+		{ name = "concat", ref = "tableConcat" }, { name = "insert", ref = "tableInsert" },
+		{ name = "remove", ref = "tableRemove" }, { name = "sort", ref = "tableSort" },
+		{ name = "unpack", ref = "tableUnpack" },
+	} },
+	{ name = "math", ref = "mathLibrary", members = {
+		{ name = "abs", ref = "mathAbs" }, { name = "ceil", ref = "mathCeil" },
+		{ name = "floor", ref = "mathFloor" }, { name = "huge", ref = "mathHuge" },
+		{ name = "max", ref = "mathMax" }, { name = "min", ref = "mathMin" },
+		{ name = "random", ref = "mathRandom" }, { name = "randomseed", ref = "mathRandomseed" },
+		{ name = "sqrt", ref = "mathSqrt" },
+	} },
+	{ name = "coroutine", ref = "coroutineLibrary", optional = true, members = {
+		{ name = "create", ref = "coroutineCreate" }, { name = "resume", ref = "coroutineResume" },
+		{ name = "running", ref = "coroutineRunning" }, { name = "status", ref = "coroutineStatus" },
+		{ name = "wrap", ref = "coroutineWrap" }, { name = "yield", ref = "coroutineYield" },
+		{ name = "close", ref = "coroutineClose" },
+	} },
+	{ name = "debug", ref = "debugLibrary", optional = true, members = {
+		{ name = "getinfo", ref = "debugGetInfo" }, { name = "getupvalue", ref = "debugGetUpvalue" },
+		{ name = "info", ref = "debugInfo" }, { name = "sethook", ref = "debugSetHook" },
+		{ name = "traceback", ref = "debugTraceback" },
+	} },
+}
+
+local function generateReferenceSnapshot(stealth)
+	local refs = {}
+	for _, library in ipairs(referenceLibraries) do
+		local expression = runtimeGlobal(library.name, stealth)
+		refs[#refs + 1] = library.ref .. " = " .. expression
+		for _, member in ipairs(library.members) do
+			refs[#refs + 1] = member.ref .. " = " .. expression .. " and " .. expression .. "." .. member.name
+		end
+	end
+	for _, name in ipairs(nativeGlobalReferences) do
+		refs[#refs + 1] = name .. " = " .. runtimeGlobal(name, stealth)
+	end
+	return "local refs = { " .. table.concat(refs, ", ") .. " };\n"
+end
+
+local function generateReferenceChecks(stealth)
+	local globals, requiredLibraries, optionalLibraries = {}, {}, {}
+	for _, name in ipairs(nativeGlobalReferences) do
+		globals[#globals + 1] = runtimeGlobal(name, stealth) .. " == refs." .. name
+	end
+	for _, library in ipairs(referenceLibraries) do
+		local expression = runtimeGlobal(library.name, stealth)
+		local checks = { expression .. " == refs." .. library.ref }
+		for _, member in ipairs(library.members) do
+			checks[#checks + 1] = expression .. "." .. member.name .. " == refs." .. member.ref
+		end
+		if library.optional then
+			optionalLibraries[#optionalLibraries + 1] = "check(" .. checks[1] .. " and (not " .. expression
+				.. " or (" .. table.concat(checks, " and ", 2) .. ")));"
+		else
+			requiredLibraries[#requiredLibraries + 1] = table.concat(checks, " and\n          ")
+		end
+	end
+	return "check(" .. table.concat(globals, " and\n          ") .. " and\n          "
+		.. table.concat(requiredLibraries, " and\n          ") .. ");\n"
+		.. table.concat(optionalLibraries, "\n") .. "\n"
+end
+
+local function generateSanityCheck(stealth)
 	local sanityCheckAnswers = {}
 	local sanityPasses = math.random(1, 10)
 	for i = 1, sanityPasses do
@@ -137,6 +218,7 @@ local function generateSanityCheck()
 	-- exact first-zero-wins order. Luau dedupes bit-exactly and is immune,
 	-- but Fengetheus targets stock Lua 5.1 too.
 	addCode("(function() local valid = '%s';", primaryCheck)
+	addCode("%s", generateReferenceSnapshot(stealth))
 	addCode("for i = 0, %d do\n", sanityPasses)
 	for i = 0, sanityPasses do
 		if i == 0 then
@@ -176,8 +258,8 @@ function AntiTamper:apply(ast, pipeline)
 		logger:warn(string.format('"%s" cannot be used with PrettyPrint, ignoring "%s"', self.Name, self.Name))
 		return ast
 	end
-	local code = generateSanityCheck()
 	local stealth = self.Stealth
+	local code = generateSanityCheck(stealth)
 	local debugExpr = runtimeGlobal("debug", stealth)
 	local stringExpr = runtimeGlobal("string", stealth)
 	local tableExpr = runtimeGlobal("table", stealth)
@@ -307,38 +389,6 @@ function AntiTamper:apply(ast, pipeline)
             detected();
         end
     end
-
-    -- Snapshot every builtin we will rely on. A global replace of e.g. pcall
-    -- after this point cannot fool the checks below, and the final equality
-    -- block catches replaces that happened *before* the snapshot too.
-    local refs = {
-        assert = assert, error = error, getmetatable = getmetatable,
-        next = next, pairs = pairs, pcall = pcall, rawequal = rawequal,
-        rawget = rawget, rawset = rawset, select = select,
-        setmetatable = setmetatable, tonumber = tonumber, tostring = tostring,
-        type = type, xpcall = xpcall,
-        stringByte = ]] .. stringExpr .. [[.byte, stringChar = ]] .. stringExpr .. [[.char,
-        stringSub = ]] .. stringExpr .. [[.sub, stringFind = ]] .. stringExpr .. [[.find,
-        stringGsub = ]] .. stringExpr .. [[.gsub, stringFormat = ]] .. stringExpr .. [[.format,
-        stringLen = ]] .. stringExpr .. [[.len, stringRep = ]] .. stringExpr .. [[.rep,
-        stringReverse = ]] .. stringExpr .. [[.reverse,
-        tableInsert = ]] .. tableExpr .. [[.insert, tableRemove = ]] .. tableExpr .. [[.remove,
-        tableConcat = ]] .. tableExpr .. [[.concat, tableSort = ]] .. tableExpr .. [[.sort,
-        mathFloor = ]] .. mathExpr .. [[.floor, mathAbs = ]] .. mathExpr .. [[.abs,
-        mathMin = ]] .. mathExpr .. [[.min, mathMax = ]] .. mathExpr .. [[.max,
-        mathHuge = ]] .. mathExpr .. [[.huge, mathRandom = ]] .. mathExpr .. [[.random,
-        coroutineCreate = ]] .. coroutineExpr .. [[.create, coroutineResume = ]] .. coroutineExpr .. [[.resume,
-        coroutineYield = ]] .. coroutineExpr .. [[.yield, coroutineStatus = ]] .. coroutineExpr .. [[.status,
-        coroutineClose = ]] .. coroutineExpr .. [[.close, coroutineRunning = ]] .. coroutineExpr .. [[.running,
-        coroutineWrap = ]] .. coroutineExpr .. [[.wrap,
-        debugInfo = ]] .. debugExpr .. [[ and ]] .. debugExpr .. [[.info, debugTraceback = ]] .. debugExpr .. [[ and ]] .. debugExpr .. [[.traceback,
-        debugGetInfo = ]] .. debugExpr .. [[ and ]] .. debugExpr .. [[.getinfo,
-        loadstring = ]] .. functionExpr("loadstring") .. [[,
-        iscclosure = ]] .. functionExpr("iscclosure") .. [[, islclosure = ]] .. functionExpr("islclosure") .. [[,
-        newcclosure = ]] .. functionExpr("newcclosure") .. [[, clonefunction = ]] .. functionExpr("clonefunction") .. [[,
-        isfunctionhooked = ]] .. functionExpr("isfunctionhooked") .. [[, checkcaller = ]] .. functionExpr("checkcaller") .. [[,
-        getfenv = ]] .. functionExpr("getfenv") .. [[, setfenv = ]] .. functionExpr("setfenv") .. [[,
-    };
 
     -- C-closure observation. The original intent was to detect a native builtin
     -- that had been replaced with a Lua closure (the classic hooking vector).
@@ -519,42 +569,10 @@ function AntiTamper:apply(ast, pipeline)
         end
     end
 
-    -- Final anti-hookup equality: verify that none of the snapshotted
-    -- builtins were replaced in their original library after the snapshot
-    -- was taken. This is the single most important tamper signal and is
-    -- fully engine-version-stable (it only compares function identity).
-    check(assert == refs.assert and error == refs.error and
-          getmetatable == refs.getmetatable and next == refs.next and
-          pairs == refs.pairs and pcall == refs.pcall and
-          rawequal == refs.rawequal and rawget == refs.rawget and
-          rawset == refs.rawset and select == refs.select and
-          setmetatable == refs.setmetatable and tonumber == refs.tonumber and
-          tostring == refs.tostring and type == refs.type and
-          xpcall == refs.xpcall and string.byte == refs.stringByte and
-          string.char == refs.stringChar and string.sub == refs.stringSub and
-          string.find == refs.stringFind and string.gsub == refs.stringGsub and
-          string.format == refs.stringFormat and string.len == refs.stringLen and
-          string.rep == refs.stringRep and
-          string.reverse == refs.stringReverse and
-          table.insert == refs.tableInsert and
-          table.remove == refs.tableRemove and
-          table.concat == refs.tableConcat and table.sort == refs.tableSort and
-          math.floor == refs.mathFloor and math.abs == refs.mathAbs and
-          math.min == refs.mathMin and math.max == refs.mathMax and
-          math.random == refs.mathRandom and math.huge == refs.mathHuge and
-          coroutine.create == refs.coroutineCreate and
-          coroutine.resume == refs.coroutineResume and
-          coroutine.yield == refs.coroutineYield and
-          coroutine.status == refs.coroutineStatus and
-          coroutine.close == refs.coroutineClose and
-          coroutine.running == refs.coroutineRunning and
-          coroutine.wrap == refs.coroutineWrap and
-          loadstring == refs.loadstring);
-    if debug then
-        check(debug.info == refs.debugInfo and
-              debug.traceback == refs.debugTraceback and
-              debug.getinfo == refs.debugGetInfo);
-    end
+    -- Final anti-hookup equality: check every captured global, library table,
+    -- and member. Optional debug/coroutine libraries stay nil-safe across Lua
+    -- versions; no runtime-specific Roblox APIs are required by this snapshot.
+]] .. generateReferenceChecks(stealth) .. [[
 
     local pcallIntact2 = false;
     local pcallIntact = pcall(function()

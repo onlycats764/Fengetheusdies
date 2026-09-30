@@ -66,13 +66,17 @@ local function makeCandidate(statement, maxArguments)
 		arguments[index] = arg
 	end
 
-	local uses = {}
+	local uses, captures = {}, {}
 	local function supported(expr)
 		local kind = expr.kind
 		if kind == AstKind.VariableExpression then
 			local byId = params[expr.scope]
 			local index = byId and byId[expr.id]
-			if index then uses[index] = (uses[index] or 0) + 1 end
+			if index then
+				uses[index] = (uses[index] or 0) + 1
+			else
+				captures[#captures + 1] = expr
+			end
 			return true
 		end
 		if literal(expr) then return true end
@@ -91,6 +95,7 @@ local function makeCandidate(statement, maxArguments)
 		params = params,
 		arguments = arguments,
 		uses = uses,
+		captures = captures,
 		expression = returned[1],
 		references = 0,
 		directCalls = 0,
@@ -99,7 +104,16 @@ local function makeCandidate(statement, maxArguments)
 	}
 end
 
-local function canInline(candidate, call)
+local function resolveVariable(scope, name)
+	while scope do
+		local id = scope.variablesLookup and scope.variablesLookup[name]
+		if id ~= nil then return scope, id end
+		scope = scope.parentScope
+	end
+	return nil
+end
+
+local function canInline(candidate, call, callScope)
 	if #call.args ~= #candidate.arguments then return false end
 	for i, arg in ipairs(call.args) do
 		if not simpleArgument(arg) then return false end
@@ -107,22 +121,29 @@ local function canInline(candidate, call)
 			return false
 		end
 	end
+	for _, capture in ipairs(candidate.captures) do
+		local name = capture.scope:getVariableName(capture.id)
+		local scope, id = resolveVariable(callScope, name)
+		if scope ~= capture.scope or id ~= capture.id then return false end
+	end
 	return true
 end
 
-local function cloneExpression(expr, params, arguments)
+local function cloneExpression(expr, params, arguments, callScope, trackReferences)
 	if expr.kind == AstKind.VariableExpression then
 		local byId = params and params[expr.scope]
 		local argumentIndex = byId and byId[expr.id]
 		if argumentIndex then
-			return cloneExpression(arguments[argumentIndex], nil, nil)
+			return cloneExpression(arguments[argumentIndex], nil, nil, callScope, false)
+		elseif trackReferences then
+			callScope:addReferenceToHigherScope(expr.scope, expr.id)
 		end
 	end
 
 	local copy = {}
 	for key, value in pairs(expr) do
 		if key == "lhs" or key == "rhs" then
-			copy[key] = cloneExpression(value, params, arguments)
+			copy[key] = cloneExpression(value, params, arguments, callScope, trackReferences)
 		else
 			copy[key] = value
 		end
@@ -147,7 +168,7 @@ function InlineFunctions:apply(ast)
 	if #candidates == 0 then return ast end
 
 	local eligibleCalls = {}
-	visitast(ast, function(node)
+	visitast(ast, function(node, data)
 		if node.kind == AstKind.VariableExpression then
 			local candidate = candidateFor(declarations, node)
 			if candidate then candidate.references = candidate.references + 1 end
@@ -158,7 +179,7 @@ function InlineFunctions:apply(ast)
 			local candidate = candidateFor(declarations, node.base)
 			if candidate then
 				candidate.directCalls = candidate.directCalls + 1
-				if canInline(candidate, node) then
+				if canInline(candidate, node, data.scope) then
 					candidate.eligibleCalls = candidate.eligibleCalls + 1
 					eligibleCalls[node] = candidate
 				end
@@ -175,11 +196,11 @@ function InlineFunctions:apply(ast)
 		if candidate.remove then removable[candidate.statement] = true end
 	end
 
-	visitast(ast, nil, function(node)
+	visitast(ast, nil, function(node, data)
 		if node.kind == AstKind.FunctionCallExpression then
 			local candidate = eligibleCalls[node]
 			if candidate then
-				return cloneExpression(candidate.expression, candidate.params, node.args)
+				return cloneExpression(candidate.expression, candidate.params, node.args, data.scope, true)
 			end
 		elseif node.kind == AstKind.Block then
 			local kept = {}
