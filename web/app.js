@@ -36,27 +36,13 @@
   const stepLabels = new Map(steps.map(([name, label]) => [name, label]));
   const referenceExcludedSteps = new Set(["DeadCodeElimination", "LocalCaching"]);
   const settingLabels = {
-    "AntiSandbox.UseDebug": "Use debug library", "AntiSandbox.CheckExecutorAPIs": "Check executor APIs",
-    "AntiSandbox.CheckTiming": "Check timing", "AntiSandbox.FailureMode": "Failure mode",
-    "AntiSandbox.Intensity": "Intensity", "AntiTamper.UseDebug": "Use debug library",
     "AntiTamper.Stealth": "Stealth checks", "ConstantArray.Threshold": "Extraction threshold",
-    "ConstantArray.StringsOnly": "Strings only", "ConstantArray.Shuffle": "Shuffle constants",
-    "ConstantArray.Rotate": "Rotate array", "ConstantArray.LocalWrapperThreshold": "Local wrapper threshold",
-    "ControlFlowMutation.Threshold": "Mutation threshold", "ControlFlowMutation.Layers": "Control-flow layers",
-    "ConditionCamouflage.Threshold": "Camouflage threshold", "JunkCode.Chance": "Junk insertion",
-    "JunkCode.MinJunk": "Minimum junk blocks", "JunkCode.MaxJunk": "Maximum junk blocks",
-    "JunkCode.MaxDepth": "Maximum nesting depth", "NumbersToExpressions.MixedArithmetic": "Mixed arithmetic",
-    "NumbersToExpressions.NumberRepresentationMutation": "Number representation mutation",
-    "OpaquePredicate.Threshold": "Predicate threshold", "RewriteNamecalls.Threshold": "Rewrite threshold",
-    "RewriteNamecalls.BracketIndex": "Bracket indexing", "SplitStrings.Threshold": "Split threshold",
-    "SplitStrings.MinLength": "Minimum string length", "SplitStrings.MaxLength": "Maximum string length",
-    "SplitStrings.ConcatenationType": "Concatenation type", "SplitStrings.CustomFunctionType": "Decoder type",
-    "SplitStrings.CustomLocalFunctionsCount": "Decoder functions", "TamperObfuscator.XORLayers": "XOR layers",
-    "UnrollLoops.MaxIterations": "Maximum loop iterations", "InlineFunctions.MaxArguments": "Maximum arguments",
+    "ConstantArray.StringsOnly": "Strings only", "ControlFlowMutation.Threshold": "Mutation threshold",
+    "ControlFlowMutation.Layers": "Control-flow layers", "JunkCode.Chance": "Junk insertion",
+    "OpaquePredicate.Threshold": "Predicate threshold",
     "Vmify.DispatchAliasCount": "Dispatch aliases", "Vmify.DispatchMask": "Masked dispatch",
     "Vmify.DispatchAffine": "Affine dispatch", "Vmify.DispatchBounce": "Bounce dispatch",
-    "Vmify.DispatchNonlinear": "Nonlinear dispatch", "Vmify.DispatchMaskMagnitude": "Mask magnitude",
-    "Vmify.DispatchNoiseMagnitude": "Dispatch noise magnitude"
+    "Vmify.DispatchNonlinear": "Nonlinear dispatch"
   };
   // An edited control overrides only its own field. Repeated preset passes
   // retain their distinct compiler settings while that field is untouched.
@@ -71,6 +57,11 @@
     ["vm-bounce", "Vmify", "DispatchBounce", false], ["vm-nonlinear", "Vmify", "DispatchNonlinear", false],
     ["strings-only", "ConstantArray", "StringsOnly", false], ["tamper-stealth", "AntiTamper", "Stealth", false]
   ];
+  const presetEditableSettings = new Map();
+  for (const [, stepName, settingName] of controls) {
+    if (!presetEditableSettings.has(stepName)) presetEditableSettings.set(stepName, new Set());
+    presetEditableSettings.get(stepName).add(settingName);
+  }
   const mode = () => $(".mode-tab.active").dataset.mode;
   const syntax = (label) => { if ($("#syntax-state")) $("#syntax-state").textContent = label; };
   function progress(percent, label) {
@@ -235,7 +226,10 @@
         heading.append(number, label);
         item.append(heading);
 
-        const entries = Object.entries(step.Settings || {}).sort(([a], [b]) => a.localeCompare(b));
+        const editableSettings = presetEditableSettings.get(step.Name);
+        const entries = Object.entries(step.Settings || {})
+          .filter(([key]) => editableSettings?.has(key))
+          .sort(([a], [b]) => a.localeCompare(b));
         if (entries.length) {
           const settings = document.createElement("dl");
           settings.className = "preset-settings";
@@ -249,11 +243,6 @@
             settings.append(row);
           }
           item.append(settings);
-        } else {
-          const empty = document.createElement("p");
-          empty.className = "preset-step-empty";
-          empty.textContent = "No additional settings";
-          item.append(empty);
         }
         list.append(item);
       }

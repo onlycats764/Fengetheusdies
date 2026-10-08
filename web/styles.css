@@ -174,7 +174,6 @@ button, input, select, a, summary, label[role="button"] { touch-action: manipula
 .preset-settings > div { display: flex; min-width: 0; justify-content: space-between; gap: 12px; }
 .preset-settings dt { min-width: 0; color: var(--on-surface-variant); font-size: 11px; line-height: 1.5; }
 .preset-settings dd { margin: 0; color: var(--on-surface); font: 10px/1.5 'Roboto Mono', monospace; overflow-wrap: anywhere; text-align: right; }
-.preset-step-empty { margin: 7px 0 0 34px; color: var(--on-surface-variant); font-size: 11px; }
 .is-hidden { display: none !important; }
 .workspace[aria-busy="true"] .dropzone { pointer-events: none; opacity: .6; }
 input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-allowed; }
