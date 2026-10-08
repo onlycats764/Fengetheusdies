@@ -3,123 +3,145 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#090909">
-  <meta name="description" content="Fengetheus — client-side Lua obfuscation for protected downloads.">
-  <title>Fengetheus / Lua Obfuscator</title>
+  <meta name="theme-color" content="#0b0b0e">
+  <meta name="description" content="Obfuscate Lua and Luau files locally with Fengetheus. Your source stays in your browser.">
+  <title>Fengetheus · Lua &amp; Luau obfuscator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="ambient ambient-one" aria-hidden="true"></div>
-  <div class="ambient ambient-two" aria-hidden="true"></div>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
   <header class="site-header">
     <a class="brand" href="./" aria-label="Fengetheus home">
-      <span class="brand-mark">F/</span>
-      <span>FENGETHEUS</span>
+      <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="icons.svg#code-xml"></use></svg></span>
+      <span>Fengetheus</span>
     </a>
-    <div class="header-note"><span class="pulse-dot"></span> Runs locally in your browser</div>
+    <div class="header-actions">
+      <span class="local-badge"><svg class="icon" aria-hidden="true"><use href="icons.svg#shield-check"></use></svg> Local processing</span>
+      <a class="text-button" href="https://github.com/Xyraniz/Fengetheus" target="_blank" rel="noopener noreferrer">GitHub <svg class="icon" aria-hidden="true"><use href="icons.svg#external-link"></use></svg></a>
+    </div>
   </header>
 
   <main class="shell">
-    <section class="hero">
-      <p class="eyebrow">PRIVATE CLIENT-SIDE PIPELINE</p>
-      <h1>Make Lua harder<br><span>to read.</span></h1>
-      <p class="hero-copy">Choose a proven Fengetheus profile or assemble your own pipeline. Your source stays in this browser; only the finished download leaves the page.</p>
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Lua &amp; Luau obfuscator</p>
+        <h1 id="page-title">Your code. A little less readable.</h1>
+        <p class="hero-copy">Upload a script, choose a preset, and download the result.<br class="desktop-break"> Everything runs right here in your browser.</p>
+      </div>
+      <div class="hero-symbol" aria-hidden="true"><svg class="icon"><use href="icons.svg#code-xml"></use></svg></div>
     </section>
 
-    <section class="workspace" aria-label="Obfuscation workspace">
+    <section class="workspace" id="workspace" aria-label="Obfuscation workspace">
       <div class="input-column">
-        <div class="section-kicker"><span>01</span><strong>Source file</strong><em id="file-state">Waiting for a file</em></div>
-        <label class="dropzone" id="dropzone" for="source-file" tabindex="0">
-          <input id="source-file" type="file" accept=".lua,.luau,text/plain" hidden>
-          <span class="upload-icon" aria-hidden="true">↑</span>
-          <span class="drop-title">Drop a Lua file here</span>
-          <span class="drop-subtitle">or <u>choose a file</u> from your device</span>
-          <span class="drop-meta">.lua and .luau · up to 12 MB</span>
-        </label>
-        <div class="file-summary is-hidden" id="file-summary">
-          <span class="file-badge">LUA</span>
-          <div><strong id="file-name">source.lua</strong><span id="file-size">0 KB</span></div>
-          <button class="icon-button" id="remove-file" type="button" aria-label="Remove selected file">×</button>
-        </div>
+        <section class="surface source-surface" aria-labelledby="source-heading">
+          <div class="section-heading">
+            <div class="heading-title"><svg class="icon" aria-hidden="true"><use href="icons.svg#file-code"></use></svg><h2 id="source-heading">Source file</h2></div>
+            <span class="status-label" id="file-state">No file selected</span>
+          </div>
+          <label class="dropzone" id="dropzone" for="source-file" tabindex="0" role="button" aria-label="Choose a Lua or Luau source file">
+            <input id="source-file" type="file" accept=".lua,.luau,text/plain" hidden>
+            <span class="upload-icon"><svg class="icon" aria-hidden="true"><use href="icons.svg#upload"></use></svg></span>
+            <span class="drop-title">Drop your script here</span>
+            <span class="drop-subtitle">or <span class="choose-file">browse files</span></span>
+            <span class="drop-meta">.lua or .luau <span aria-hidden="true">·</span> up to 12 MB</span>
+          </label>
+          <div class="file-summary is-hidden" id="file-summary">
+            <span class="file-badge"><svg class="icon" aria-hidden="true"><use href="icons.svg#file-code"></use></svg></span>
+            <div class="file-details"><strong id="file-name">Source file</strong><span id="file-size"></span></div>
+            <button class="icon-button" id="remove-file" type="button" aria-label="Remove selected file"><svg class="icon" aria-hidden="true"><use href="icons.svg#x"></use></svg></button>
+          </div>
+          <div class="source-info">
+            <span><svg class="icon" aria-hidden="true"><use href="icons.svg#code-xml"></use></svg> Syntax</span>
+            <span id="syntax-state" aria-live="polite">Detected automatically</span>
+          </div>
+        </section>
 
-        <div class="privacy-card">
-          <span class="lock-icon" aria-hidden="true">◈</span>
-          <div><strong>Your code is not displayed</strong><p>It is read into memory, obfuscated, and held only for the download. No source or generated code is sent to a server.</p></div>
-        </div>
+        <aside class="privacy-card" aria-label="Source privacy">
+          <span class="privacy-icon"><svg class="icon" aria-hidden="true"><use href="icons.svg#lock-keyhole"></use></svg></span>
+          <div><h2>Stays on your device</h2><p>Your source and result stay in memory. Neither is uploaded to a server or displayed on this page.</p></div>
+        </aside>
+        <div class="process-note"><svg class="icon" aria-hidden="true"><use href="icons.svg#info"></use></svg><p>Seed is always <strong>0</strong>. Fengetheus generates a fresh layout for each build.</p></div>
       </div>
 
-      <div class="config-column">
-        <div class="section-kicker"><span>02</span><strong>Configuration</strong><em>Choose how it transforms</em></div>
+      <section class="surface config-column" aria-labelledby="configuration-heading">
+        <div class="section-heading">
+          <div class="heading-title"><svg class="icon" aria-hidden="true"><use href="icons.svg#sliders-horizontal"></use></svg><h2 id="configuration-heading">Configuration</h2></div>
+          <span class="status-label" id="runtime-state" aria-live="polite">Browser runtime</span>
+        </div>
         <div class="mode-tabs" role="tablist" aria-label="Configuration mode">
-          <button class="mode-tab active" type="button" data-mode="preset" role="tab" aria-selected="true">Preset profiles</button>
-          <button class="mode-tab" type="button" data-mode="custom" role="tab" aria-selected="false">Custom pipeline</button>
+          <button class="mode-tab active" id="preset-tab" type="button" data-mode="preset" role="tab" aria-selected="true" aria-controls="preset-panel"><svg class="icon" aria-hidden="true"><use href="icons.svg#blocks"></use></svg>Presets</button>
+          <button class="mode-tab" id="custom-tab" type="button" data-mode="custom" role="tab" aria-selected="false" aria-controls="custom-panel" tabindex="-1"><svg class="icon" aria-hidden="true"><use href="icons.svg#settings-2"></use></svg>Custom pipeline</button>
         </div>
 
-        <div id="preset-panel" class="config-panel">
-          <label class="field-label" for="preset-select">Profile</label>
-          <select id="preset-select" class="select-control">
-            <option value="Minify">Minify · smallest change</option>
-            <option value="Balanced" selected>Balanced · practical protection</option>
-            <option value="Phantom">Phantom · virtualized runtime</option>
-            <option value="Wraith">Wraith · stealth transforms</option>
-            <option value="Cipher">Cipher · encrypted constants</option>
-            <option value="Aegis">Aegis · sandbox resistance</option>
-            <option value="Titan">Titan · maximum protection</option>
-            <option value="TitanVM2">TitanVM2 · nonlinear VM</option>
-            <option value="StrongScalable">StrongScalable · large scripts</option>
-            <option value="Vmify">Vmify · custom VM baseline</option>
-          </select>
-          <p class="field-help" id="preset-description">A balanced profile for everyday scripts, with encrypted strings and integrity checks.</p>
+        <div id="preset-panel" class="config-panel" role="tabpanel" aria-labelledby="preset-tab">
+          <label class="field-label" for="preset-select">Preset</label>
+          <div class="select-wrap">
+            <select id="preset-select" class="select-control" aria-describedby="preset-description">
+              <option value="Minify">Minify</option>
+              <option value="Balanced" selected>Balanced</option>
+              <option value="Virtualized">Virtualized</option>
+              <option value="Stealth">Stealth</option>
+              <option value="Encrypted">Encrypted</option>
+              <option value="Hardened">Hardened</option>
+              <option value="Strong">Strong</option>
+              <option value="Advanced">Advanced</option>
+              <option value="LargeScripts">Large scripts</option>
+              <option value="VM">VM only</option>
+            </select>
+            <svg class="icon" aria-hidden="true"><use href="icons.svg#chevron-down"></use></svg>
+          </div>
+          <p class="field-help" id="preset-description">Encrypted strings and integrity checks, without a virtual machine.</p>
         </div>
 
-        <div id="custom-panel" class="config-panel is-hidden">
-          <p class="field-help custom-intro">Build a pipeline in execution order. The selected steps use the controls below; unchecked steps are never run.</p>
+        <div id="custom-panel" class="config-panel is-hidden" role="tabpanel" aria-labelledby="custom-tab">
+          <p class="field-help custom-intro">Select the transformations to run. Steps execute in the order shown.</p>
           <div class="step-grid" id="step-grid" aria-label="Custom pipeline steps"></div>
         </div>
 
         <div class="settings-grid">
-          <label class="field"><span>Target syntax</span><select id="lua-version"><option value="Lua51" selected>Lua 5.1</option><option value="LuaU">Luau</option></select></label>
-          <label class="field"><span>Build seed</span><input id="seed" type="number" min="0" max="9007199254740991" value="424242" inputmode="numeric"><small>0 = fresh layout</small></label>
-          <label class="field field-wide"><span>Identifier prefix</span><input id="name-prefix" type="text" maxlength="20" value="" spellcheck="false"><small>Optional prefix for generated locals</small></label>
-          <label class="check-field field-wide"><input id="pretty-print" type="checkbox"><span>Readable spacing in the downloaded file</span></label>
+          <label class="field field-wide"><span>Identifier prefix <span class="optional">Optional</span></span><input id="name-prefix" type="text" maxlength="20" value="" placeholder="e.g. _app" autocomplete="off" spellcheck="false" aria-describedby="prefix-help"><small id="prefix-help">Prefix for generated variable names.</small></label>
+          <label class="check-field field-wide switch-field"><span>Readable spacing<small>Adds formatting to the downloaded file</small></span><input id="pretty-print" type="checkbox" role="switch"></label>
         </div>
 
-        <details class="advanced-settings" open>
-          <summary>Transformation controls <span>tune the selected pipeline</span></summary>
+        <details class="advanced-settings">
+          <summary><span class="summary-title"><svg class="icon" aria-hidden="true"><use href="icons.svg#sliders-horizontal"></use></svg>Transformation controls</span><svg class="icon expand-icon" aria-hidden="true"><use href="icons.svg#chevron-down"></use></svg></summary>
+          <p class="field-help advanced-help">Fine-tune the active steps in your pipeline.</p>
           <div class="advanced-grid">
-            <label class="field"><span>Control-flow threshold</span><input id="control-threshold" type="number" min="0" max="1" step="0.05" value="0.4"><small>0–1, higher adds more mutations</small></label>
+            <label class="field"><span>Control-flow threshold</span><input id="control-threshold" type="number" min="0" max="1" step="0.05" value="0.4"><small>0–1, chance of a mutation</small></label>
             <label class="field"><span>Control-flow layers</span><input id="control-layers" type="number" min="1" max="4" step="1" value="1"></label>
             <label class="field"><span>Opaque predicate threshold</span><input id="opaque-threshold" type="number" min="0" max="1" step="0.05" value="0.5"></label>
-            <label class="field"><span>Constant-array threshold</span><input id="constant-threshold" type="number" min="1" max="100" step="1" value="1"><small>Minimum repeated constants</small></label>
+            <label class="field"><span>Constant-array threshold</span><input id="constant-threshold" type="number" min="0" max="1" step="0.05" value="1"><small>0–1, chance of extracting a constant</small></label>
             <label class="field"><span>Junk insertion chance</span><input id="junk-chance" type="number" min="0" max="1" step="0.05" value="0.15"></label>
             <label class="field"><span>VM alias count</span><input id="vm-alias-count" type="number" min="1" max="4" step="1" value="1"></label>
             <label class="check-field"><input id="vm-mask" type="checkbox"><span>Masked VM dispatch</span></label>
             <label class="check-field"><input id="vm-affine" type="checkbox"><span>Affine VM dispatch</span></label>
             <label class="check-field"><input id="vm-bounce" type="checkbox"><span>Bounce VM dispatch</span></label>
             <label class="check-field"><input id="vm-nonlinear" type="checkbox"><span>Nonlinear VM dispatch</span></label>
-            <label class="check-field"><input id="strings-only" type="checkbox"><span>Keep constant array string-only</span></label>
+            <label class="check-field"><input id="strings-only" type="checkbox"><span>String-only constant array</span></label>
             <label class="check-field"><input id="tamper-stealth" type="checkbox"><span>Stealth integrity checks</span></label>
           </div>
         </details>
 
-        <button class="obfuscate-button" id="obfuscate" type="button" disabled><span>Obfuscate file</span><span class="button-arrow">→</span></button>
-        <div class="progress-wrap is-hidden" id="progress-wrap" aria-live="polite"><div class="progress-track"><span id="progress-bar"></span></div><p id="progress-label">Preparing the browser runtime…</p></div>
+        <div class="action-area">
+          <button class="obfuscate-button" id="obfuscate" type="button" disabled><svg class="icon" aria-hidden="true"><use href="icons.svg#shield-check"></use></svg><span>Obfuscate file</span><svg class="icon action-arrow" aria-hidden="true"><use href="icons.svg#arrow-right"></use></svg></button>
+          <p class="action-help">Upload a file to get started.</p>
+        </div>
+        <div class="progress-wrap is-hidden" id="progress-wrap" aria-live="polite"><div class="progress-track" role="progressbar" aria-label="Obfuscation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progress-bar"></span></div><p id="progress-label">Preparing the browser runtime…</p></div>
         <div class="error-box is-hidden" id="error-box" role="alert"></div>
-      </div>
+      </section>
     </section>
 
     <section class="result-card is-hidden" id="result-card" aria-live="polite">
-      <div class="result-icon">✓</div>
-      <div class="result-copy"><p class="eyebrow">OBFUSCATION COMPLETE</p><h2>Your protected file is ready.</h2><p>The generated Lua is stored in memory and is not shown here. Press Download to save it to your device.</p></div>
-      <button class="download-button" id="download" type="button">Download <span>↓</span></button>
+      <span class="result-icon"><svg class="icon" aria-hidden="true"><use href="icons.svg#check"></use></svg></span>
+      <div class="result-copy"><h2>Your file is ready</h2><p id="result-syntax">Download your obfuscated script.</p></div>
+      <button class="download-button" id="download" type="button"><svg class="icon" aria-hidden="true"><use href="icons.svg#download"></use></svg>Download file</button>
     </section>
 
-    <footer class="site-footer"><span>FENGETHEUS / OPEN SOURCE LUA OBFUSCATOR</span><span>Built for private, local processing</span></footer>
+    <footer class="site-footer"><span>Fengetheus <span class="footer-divider" aria-hidden="true">/</span> Open source</span><span>Made for Lua &amp; Luau</span></footer>
   </main>
-
   <script src="app.js" defer></script>
 </body>
 </html>

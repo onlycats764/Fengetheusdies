@@ -1,308 +1,252 @@
-/* Fengetheus web client. The Lua compiler is executed in a WebAssembly Lua VM in this
- * browser tab; the generated source is kept in memory and is never rendered. */
+/* Source and output stay in memory; compilation runs in the Wasmoon worker. */
 (() => {
   "use strict";
-
   const $ = (selector) => document.querySelector(selector);
-  const appUrl = new URL(document.currentScript && document.currentScript.src ? document.currentScript.src : "./app.js", window.location.href);
-  const sourceInput = $("#source-file");
-  const dropzone = $("#dropzone");
-  const obfuscateButton = $("#obfuscate");
-  const progressWrap = $("#progress-wrap");
-  const progressBar = $("#progress-bar");
-  const progressLabel = $("#progress-label");
-  const resultCard = $("#result-card");
-  const errorBox = $("#error-box");
-  const presetDescription = $("#preset-description");
-  let selectedFile = null;
-  let generatedSource = null;
-  let generatedName = "protected.lua";
-  let downloadUrl = null;
-  let runtimePromise = null;
-  let obfuscationWorker = null;
+  const appUrl = new URL(document.currentScript?.src || "./app.js", window.location.href);
+  const sourceInput = $("#source-file"), dropzone = $("#dropzone"), button = $("#obfuscate");
+  const dirtyControls = new Set();
+  let selectedFile = null, downloadUrl = null, generatedName = "protected.lua";
+  let worker = null, pendingRequest = null, metadataPromise = null, presetMetadata = null, busy = false;
+  let activeRun = 0;
 
-  const presetDescriptions = {
-    Minify: "Smallest change: cleans and simplifies code without a heavy runtime layer.",
-    Balanced: "A practical everyday profile with encrypted strings and integrity checks.",
-    Phantom: "A virtualized runtime profile for scripts that need a stronger execution barrier.",
-    Wraith: "Stealth-focused transformations with a lighter runtime footprint.",
-    Cipher: "Encrypted constants and layered transformations for a less recognizable output.",
-    Aegis: "Adds anti-sandbox checks while preserving a manageable script size.",
-    Titan: "Maximum standard protection with VM, integrity, and structural transforms.",
-    TitanVM2: "A nonlinear, multi-entry virtual machine profile for high resistance.",
-    StrongScalable: "A strong profile tuned for large scripts and lower nesting pressure.",
-    Vmify: "A focused custom virtual machine baseline for testing VM-based protection."
+  const descriptions = {
+    Minify: "Minifies and simplifies code without adding protection layers.",
+    Balanced: "String encryption and integrity checks without a virtual machine.",
+    Virtualized: "A virtual machine with encrypted strings and integrity checks.",
+    Stealth: "Stealth integrity checks, split strings and control-flow transforms inside a virtual machine.",
+    Encrypted: "String encryption, split constants and a virtual machine with runtime checks.",
+    Hardened: "Layered control-flow and constant transforms without a virtual machine.",
+    Strong: "A virtual machine with layered constant, control-flow and integrity transforms.",
+    Advanced: "A nonlinear virtual machine with dispatch aliases and additional transformation passes.",
+    LargeScripts: "String encryption and integrity checks for large scripts, without a virtual machine.",
+    VM: "A focused virtual machine profile for testing."
   };
-
-  const stepDefinitions = [
-    ["ConstantFolding", "Constant folding", true],
-    ["DeadCodeElimination", "Dead-code removal", true],
-    ["RedundantOperationElimination", "Redundant operation removal", true],
-    ["LocalCaching", "Local caching", true],
-    ["ExtractGlobals", "Global extraction", false],
-    ["OpaquePredicate", "Opaque predicates", true],
-    ["ControlFlowMutation", "Control-flow mutation", false],
-    ["EncryptStrings", "String encryption", true],
-    ["SplitStrings", "String splitting", false],
-    ["ConstantArray", "Constant array", false],
-    ["NumbersToExpressions", "Number mutation", false],
-    ["Vmify", "Virtual machine", false],
-    ["AntiSandbox", "Anti-sandbox checks", false],
-    ["AntiTamper", "Anti-tamper checks", false],
-    ["TamperObfuscator", "Anti-tamper loader", false],
-    ["RewriteNamecalls", "Method-call rewriting", false],
-    ["ConditionCamouflage", "Condition camouflage", false],
-    ["JunkCode", "Junk code", false],
-    ["ProxifyLocals", "Local proxying", false],
-    ["WrapInFunction", "Function wrapping", false]
+  const steps = [
+    ["ConstantFolding", "Constant folding", true], ["DeadCodeElimination", "Dead-code removal", true],
+    ["RedundantOperationElimination", "Redundant operation removal", true], ["LocalCaching", "Local caching", true],
+    ["ExtractGlobals", "Global extraction"], ["OpaquePredicate", "Opaque predicates", true],
+    ["ControlFlowMutation", "Control-flow mutation"], ["EncryptStrings", "String encryption", true],
+    ["SplitStrings", "String splitting"], ["ConstantArray", "Constant array"],
+    ["NumbersToExpressions", "Number mutation"], ["Vmify", "Virtual machine"],
+    ["AntiSandbox", "Anti-sandbox checks"], ["AntiTamper", "Anti-tamper checks"],
+    ["TamperObfuscator", "Anti-tamper loader"], ["RewriteNamecalls", "Method-call rewriting"],
+    ["ConditionCamouflage", "Condition camouflage"], ["JunkCode", "Junk code"],
+    ["ProxifyLocals", "Local proxying"], ["WrapInFunction", "Function wrapping"]
   ];
-
-  function setProgress(percent, label) {
-    progressBar.style.width = `${percent}%`;
-    progressLabel.textContent = label;
+  // An edited control overrides only its own field. Repeated preset passes
+  // retain their distinct compiler settings while that field is untouched.
+  const controls = [
+    ["control-threshold", "ControlFlowMutation", "Threshold", 0.4, 0, 1],
+    ["control-layers", "ControlFlowMutation", "Layers", 1, 1, 4, true],
+    ["opaque-threshold", "OpaquePredicate", "Threshold", 0.5, 0, 1],
+    ["constant-threshold", "ConstantArray", "Threshold", 1, 0, 1],
+    ["junk-chance", "JunkCode", "Chance", 0.15, 0, 1],
+    ["vm-alias-count", "Vmify", "DispatchAliasCount", 1, 1, 4, true],
+    ["vm-mask", "Vmify", "DispatchMask", false], ["vm-affine", "Vmify", "DispatchAffine", false],
+    ["vm-bounce", "Vmify", "DispatchBounce", false], ["vm-nonlinear", "Vmify", "DispatchNonlinear", false],
+    ["strings-only", "ConstantArray", "StringsOnly", false], ["tamper-stealth", "AntiTamper", "Stealth", false]
+  ];
+  const mode = () => $(".mode-tab.active").dataset.mode;
+  const syntax = (label) => { if ($("#syntax-state")) $("#syntax-state").textContent = label; };
+  function progress(percent, label) {
+    $("#progress-bar").style.width = `${percent}%`;
+    $("#progress-label").textContent = label;
+    $(".progress-track")?.setAttribute("aria-valuenow", String(percent));
   }
-
-  function showError(message) {
-    errorBox.textContent = message;
-    errorBox.classList.remove("is-hidden");
+  function updateActionHelp() {
+    const help = $(".action-help");
+    if (help) help.textContent = busy ? "Processing your file locally…" : downloadUrl ? "Download your file below, or run again." : selectedFile ? "Ready to run with your selected configuration." : "Upload a file to get started.";
   }
-
-  function clearError() {
-    errorBox.textContent = "";
-    errorBox.classList.add("is-hidden");
+  function showError(message) { $("#error-box").textContent = message; $("#error-box").classList.remove("is-hidden"); }
+  function clearError() { $("#error-box").textContent = ""; $("#error-box").classList.add("is-hidden"); }
+  function discardDownload() {
+    $("#result-card").classList.add("is-hidden");
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    downloadUrl = null;
+    $("#progress-wrap").classList.add("is-hidden");
+    progress(0, "Ready to run.");
+    updateActionHelp();
   }
-
   function setFile(file) {
+    if (busy || !file) return;
     clearError();
-    if (!file) return;
-    const lower = file.name.toLowerCase();
-    if (!lower.endsWith(".lua") && !lower.endsWith(".luau") && file.type !== "text/plain") {
-      showError("Choose a .lua or .luau source file.");
-      return;
-    }
-    if (file.size > 12 * 1024 * 1024) {
-      showError("This browser build accepts Lua files up to 12 MB.");
-      return;
-    }
+    if (!/\.(lua|luau)$/i.test(file.name) && file.type !== "text/plain") return showError("Choose a .lua or .luau source file.");
+    if (file.size > 12 * 1024 * 1024) return showError("This browser build accepts Lua files up to 12 MB.");
     selectedFile = file;
     $("#file-name").textContent = file.name;
     $("#file-size").textContent = `${(file.size / 1024).toFixed(file.size < 1024 * 1024 ? 1 : 0)} KB`;
     $("#file-state").textContent = "File selected";
     $("#file-summary").classList.remove("is-hidden");
-    obfuscateButton.disabled = false;
-    resultCard.classList.add("is-hidden");
-    generatedSource = null;
+    syntax("Detected from source when you run");
+    button.disabled = false;
+    discardDownload();
   }
-
   function clearFile() {
+    if (busy) return;
     selectedFile = null;
     sourceInput.value = "";
     $("#file-state").textContent = "Waiting for a file";
     $("#file-summary").classList.add("is-hidden");
-    obfuscateButton.disabled = true;
-    resultCard.classList.add("is-hidden");
-    generatedSource = null;
-    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-    downloadUrl = null;
+    syntax("Automatic Lua / Luau detection");
+    button.disabled = true;
+    $("#progress-wrap").classList.add("is-hidden");
+    clearError(); discardDownload();
   }
-
   function luaQuote(value) {
     return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r/g, "\\r").replace(/\n/g, "\\n").replace(/\t/g, "\\t")}"`;
   }
-
   function luaValue(value) {
-    if (value === null || value === undefined) return "nil";
+    if (value == null) return "nil";
     if (typeof value === "string") return luaQuote(value);
-    if (typeof value === "boolean") return value ? "true" : "false";
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) return String(value);
     if (Array.isArray(value)) return `{${value.map(luaValue).join(",")}}`;
-    if (typeof value === "object") {
-      return `{${Object.entries(value).map(([key, item]) => `[${luaQuote(key)}]=${luaValue(item)}`).join(",")}}`;
-    }
+    if (typeof value === "object") return `{${Object.entries(value).map(([key, item]) => `[${luaQuote(key)}]=${luaValue(item)}`).join(",")}}`;
     return "nil";
   }
-
-  function numberValue(id, fallback, min, max) {
-    const n = Number($(id).value);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.min(max, Math.max(min, n));
+  function controlValue([id, , , fallback, min, max, integer]) {
+    const input = $(`#${id}`);
+    if (typeof fallback === "boolean") return input.checked;
+    const number = input.value.trim() === "" ? fallback : Number(input.value);
+    const value = Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+    return integer ? Math.round(value) : value;
   }
-
   function settingsForStep(name) {
-    const controlThreshold = numberValue("#control-threshold", 0.4, 0, 1);
-    const controlLayers = Math.round(numberValue("#control-layers", 1, 1, 4));
-    const opaqueThreshold = numberValue("#opaque-threshold", 0.5, 0, 1);
-    const constantThreshold = Math.round(numberValue("#constant-threshold", 1, 1, 100));
-    const junkChance = numberValue("#junk-chance", 0.15, 0, 1);
-    const vmAliasCount = Math.round(numberValue("#vm-alias-count", 1, 1, 4));
-    const common = {};
-    if (name === "ControlFlowMutation") return { Threshold: controlThreshold, Layers: controlLayers };
-    if (name === "OpaquePredicate") return { Threshold: opaqueThreshold };
-    if (name === "ConstantArray") return { Threshold: constantThreshold, StringsOnly: $("#strings-only").checked, Shuffle: true, Rotate: true, LocalWrapperThreshold: 0 };
-    if (name === "JunkCode") return { Chance: junkChance, MinJunk: 2, MaxJunk: 4, MaxDepth: 3 };
-    if (name === "Vmify") return { DispatchMask: $("#vm-mask").checked, DispatchAffine: $("#vm-affine").checked, DispatchBounce: $("#vm-bounce").checked, DispatchNonlinear: $("#vm-nonlinear").checked, DispatchAliasCount: vmAliasCount, DispatchMaskMagnitude: 4096, DispatchNoiseMagnitude: 7 };
-    if (name === "AntiTamper") return { UseDebug: false, Stealth: $("#tamper-stealth").checked };
-    if (name === "AntiSandbox") return { UseDebug: false, CheckExecutorAPIs: false, CheckTiming: true, FailureMode: "mixed", Intensity: 3 };
-    if (name === "TamperObfuscator") return { XORLayers: 1 };
-    return common;
+    const settings = {};
+    for (const control of controls) if (control[1] === name) settings[control[2]] = controlValue(control);
+    if (name === "ConstantArray") Object.assign(settings, { Shuffle: true, Rotate: true, LocalWrapperThreshold: 0 });
+    if (name === "JunkCode") Object.assign(settings, { MinJunk: 2, MaxJunk: 4, MaxDepth: 3 });
+    if (name === "Vmify") Object.assign(settings, { DispatchMaskMagnitude: 4096, DispatchNoiseMagnitude: 7 });
+    if (name === "AntiTamper") settings.UseDebug = false;
+    if (name === "AntiSandbox") Object.assign(settings, { UseDebug: false, CheckExecutorAPIs: false, CheckTiming: true, FailureMode: "mixed", Intensity: 3 });
+    if (name === "TamperObfuscator") settings.XORLayers = 1;
+    return settings;
   }
-
-  function customSteps() {
-    return [...document.querySelectorAll("#step-grid input:checked")].map((input) => ({ Name: input.value, Settings: settingsForStep(input.value) }));
-  }
-
   function configurationSnippet() {
-    const mode = document.querySelector(".mode-tab.active").dataset.mode;
-    const luaVersion = $("#lua-version").value;
-    const pretty = $("#pretty-print").checked;
-    const seed = Math.round(numberValue("#seed", 424242, 0, 9007199254740991));
-    const prefix = $("#name-prefix").value.trim();
-    if (mode === "preset") {
-      const preset = luaQuote($("#preset-select").value);
-      return `local feng=require("fengetheus"); local cfg=feng.Presets[${preset}]; cfg.LuaVersion=${luaQuote(luaVersion)}; cfg.PrettyPrint=${pretty}; cfg.Seed=${seed}; cfg.VarNamePrefix=${luaQuote(prefix)}; for _,s in ipairs(cfg.Steps or {}) do s.Settings=s.Settings or {}; if s.Name=="ControlFlowMutation" then s.Settings.Threshold=${numberValue("#control-threshold", 0.4, 0, 1)}; s.Settings.Layers=${Math.round(numberValue("#control-layers", 1, 1, 4))}; elseif s.Name=="OpaquePredicate" then s.Settings.Threshold=${numberValue("#opaque-threshold", 0.5, 0, 1)}; elseif s.Name=="ConstantArray" then s.Settings.Threshold=${Math.round(numberValue("#constant-threshold", 1, 1, 100))}; s.Settings.StringsOnly=${$("#strings-only").checked}; elseif s.Name=="Vmify" then s.Settings.DispatchMask=${$("#vm-mask").checked}; s.Settings.DispatchAffine=${$("#vm-affine").checked}; s.Settings.DispatchBounce=${$("#vm-bounce").checked}; s.Settings.DispatchNonlinear=${$("#vm-nonlinear").checked}; s.Settings.DispatchAliasCount=${Math.round(numberValue("#vm-alias-count", 1, 1, 4))}; elseif s.Name=="AntiTamper" then s.Settings.UseDebug=false; s.Settings.Stealth=${$("#tamper-stealth").checked}; end end; local p=feng.Pipeline:fromConfig(cfg); return p:apply(__feng_source,__feng_filename)`;
+    const common = `cfg.LuaVersion=__feng_dialect; cfg.Seed=0; cfg.PrettyPrint=${$("#pretty-print").checked}; cfg.VarNamePrefix=${luaQuote($("#name-prefix").value.trim())};`;
+    if (mode() === "preset") {
+      const overrides = {};
+      for (const control of controls) if (dirtyControls.has(control[0])) (overrides[control[1]] ||= {})[control[2]] = controlValue(control);
+      // A fresh copy prevents edited presets leaking into subsequent builds.
+      return `local feng=require("fengetheus"); local function copy(t) local r={} for k,v in pairs(t) do r[k]=type(v)=="table" and copy(v) or v end return r end; local cfg=copy(assert(feng.Presets[${luaQuote($("#preset-select").value)}],"Unknown preset")); ${common} local overrides=${luaValue(overrides)}; for _,s in ipairs(cfg.Steps or {}) do for k,v in pairs(overrides[s.Name] or {}) do s.Settings=s.Settings or {}; s.Settings[k]=v end end; return feng.Pipeline:fromConfig(cfg):apply(__feng_source,__feng_filename)`;
     }
-    const config = { LuaVersion: luaVersion, PrettyPrint: pretty, Seed: seed, VarNamePrefix: prefix, NameGenerator: "MangledShuffled", Steps: customSteps() };
-    return `local feng=require("fengetheus"); local p=feng.Pipeline:fromConfig(${luaValue(config)}); return p:apply(__feng_source,__feng_filename)`;
+    const config = { NameGenerator: "MangledShuffled", Steps: [...document.querySelectorAll("#step-grid input:checked")].map((input) => ({ Name: input.value, Settings: settingsForStep(input.value) })) };
+    return `local feng=require("fengetheus"); local cfg=${luaValue(config)}; ${common} return feng.Pipeline:fromConfig(cfg):apply(__feng_source,__feng_filename)`;
   }
-
-  async function fetchModuleSources() {
-    const roots = [new URL("../src/", appUrl), new URL("./src/", appUrl), new URL("https://raw.githubusercontent.com/Xyraniz/Fengetheus/main/src/")];
-    const sources = new Map();
-    const visiting = new Map();
-    const dynamicModules = {
-      "fengetheus.compiler.statements": ["return", "local_variable_declaration", "function_call", "pass_self_function_call", "local_function_declaration", "function_declaration", "assignment", "if_statement", "do_statement", "while_statement", "repeat_statement", "for_statement", "for_in_statement", "break_statement", "continue_statement", "compound"],
-      "fengetheus.compiler.expressions": ["string", "number", "boolean", "nil", "variable", "function_call", "function_literal", "table_constructor", "binary", "and", "or", "not", "negate", "len", "index", "if_else", "vararg", "pass_self_function_call"]
-    };
-    async function visit(name) {
-      if (sources.has(name)) return;
-      if (visiting.has(name)) return visiting.get(name);
-      const promise = (async () => {
-        const relative = `${name.replace(/\./g, "/")}.lua`;
-        let response = null;
-        for (const root of roots) {
-          try { const candidate = await fetch(new URL(relative, root)); if (candidate.ok) { response = candidate; break; } } catch (_) { /* try the next source root */ }
-        }
-        if (!response) throw new Error(`The browser could not load compiler module ${name}.`);
-        const source = await response.text();
-        sources.set(name, source);
-        const dependencies = [...source.matchAll(/require\s*\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1]);
-        const dynamicDependencies = (dynamicModules[name] || []).map((suffix) => `${name}.${suffix}`);
-        await Promise.all([...dependencies, ...dynamicDependencies].map(visit));
-      })();
-      visiting.set(name, promise);
-      return promise;
+  function updateDisabledControls() {
+    const preset = mode() === "preset" ? presetMetadata?.[$("#preset-select").value] : null;
+    for (const [id, step] of controls) $(`#${id}`).disabled = busy || (mode() === "preset" && (!presetMetadata || !preset?.[step]));
+  }
+  function hydrateControls() {
+    dirtyControls.clear();
+    const preset = mode() === "preset" ? presetMetadata?.[$("#preset-select").value] : null;
+    for (const [id, step, setting, fallback] of controls) {
+      const input = $(`#${id}`), value = preset?.[step]?.[setting] ?? fallback;
+      if (typeof fallback === "boolean") input.checked = value;
+      else input.value = value;
     }
-    await visit("fengetheus");
-    return sources;
+    updateDisabledControls();
+    $("#preset-description").textContent = descriptions[$("#preset-select").value] || "A configurable Fengetheus transformation profile.";
   }
-
-  function createLuaRuntime(sources) {
-    const api = window.LuaNodeVM || window.fengari;
-    if (!api || !api.lua || !api.lauxlib) throw new Error("The Lua browser runtime did not load. Reload the page and try again.");
-    const { lua, lauxlib, lualib, to_luastring, to_jsstring } = api;
-    const state = lauxlib.luaL_newstate();
-    lualib.luaL_openlibs(state);
-    const loadBuffer = (source, name) => {
-      const bytes = to_luastring(source);
-      const status = lauxlib.luaL_loadbuffer(state, bytes, bytes.length, to_luastring(`@${name}`));
-      if (status !== lua.LUA_OK) {
-        const error = to_jsstring(lua.lua_tostring(state, -1));
-        lua.lua_settop(state, 0);
-        throw new Error(error);
-      }
-    };
-    for (const [name, source] of sources) {
-      loadBuffer(source, name);
-      lua.lua_getglobal(state, to_luastring("package"));
-      lua.lua_getfield(state, -1, to_luastring("preload"));
-      lua.lua_pushvalue(state, -3);
-      lua.lua_setfield(state, -2, to_luastring(name));
-      lua.lua_pop(state, 3);
-    }
-    return {
-      run(source, filename) {
-        lua.lua_settop(state, 0);
-        lua.lua_pushstring(state, to_luastring(source));
-        lua.lua_setglobal(state, to_luastring("__feng_source"));
-        lua.lua_pushstring(state, to_luastring(filename));
-        lua.lua_setglobal(state, to_luastring("__feng_filename"));
-        loadBuffer(configurationSnippet(), "@fengetheus-web-config");
-        const status = lua.lua_pcall(state, 0, lua.LUA_MULTRET, 0);
-        if (status !== lua.LUA_OK) {
-          const error = to_jsstring(lua.lua_tostring(state, -1));
-          lua.lua_settop(state, 0);
-          throw new Error(error);
-        }
-        const output = to_jsstring(lua.lua_tostring(state, -1));
-        lua.lua_settop(state, 0);
-        if (typeof output !== "string" || output.length === 0) throw new Error("Fengetheus returned an empty result.");
-        return output;
-      }
-    };
-  }
-
-  async function getRuntime() {
-    if (!runtimePromise) {
-      runtimePromise = (async () => {
-        setProgress(18, "Loading the local Lua compiler…");
-        const sources = await fetchModuleSources();
-        setProgress(53, "Preparing Fengetheus modules…");
-        return createLuaRuntime(sources);
-      })();
-    }
-    return runtimePromise;
-  }
-
-  function renderSteps() {
-    $("#step-grid").innerHTML = stepDefinitions.map(([name, label, checked]) => `<label class="step-toggle"><input type="checkbox" value="${name}" ${checked ? "checked" : ""}><span>${label}</span></label>`).join("");
-  }
-
-  document.querySelectorAll(".mode-tab").forEach((tab) => tab.addEventListener("click", () => {
-    document.querySelectorAll(".mode-tab").forEach((item) => { item.classList.toggle("active", item === tab); item.setAttribute("aria-selected", item === tab ? "true" : "false"); });
-    $("#preset-panel").classList.toggle("is-hidden", tab.dataset.mode !== "preset");
-    $("#custom-panel").classList.toggle("is-hidden", tab.dataset.mode !== "custom");
-  }));
-  $("#preset-select").addEventListener("change", (event) => { presetDescription.textContent = presetDescriptions[event.target.value] || "A configurable Fengetheus transformation profile."; });
-  sourceInput.addEventListener("change", () => setFile(sourceInput.files[0]));
-  ["dragenter", "dragover"].forEach((eventName) => dropzone.addEventListener(eventName, (event) => { event.preventDefault(); dropzone.classList.add("dragging"); }));
-  ["dragleave", "drop"].forEach((eventName) => dropzone.addEventListener(eventName, (event) => { event.preventDefault(); dropzone.classList.remove("dragging"); }));
-  dropzone.addEventListener("drop", (event) => setFile(event.dataTransfer.files[0]));
-  dropzone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); sourceInput.click(); } });
-  $("#remove-file").addEventListener("click", clearFile);
-  $("#download").addEventListener("click", () => { if (!downloadUrl) return; const link = document.createElement("a"); link.href = downloadUrl; link.download = generatedName; link.click(); });
-  function runInWorker(source, filename, configuration) {
+  function stopWorker() { worker?.terminate(); worker = null; }
+  function requestWorker(data) {
     return new Promise((resolve, reject) => {
-      if (obfuscationWorker) obfuscationWorker.terminate();
-      obfuscationWorker = new Worker(new URL("worker.js", appUrl), { type: "classic" });
-      obfuscationWorker.onmessage = (event) => {
-        const message = event.data || {};
-        if (message.type === "progress") setProgress(message.percent, message.label);
-        if (message.type === "complete") resolve(message.output);
-        if (message.type === "error") reject(new Error(message.message));
-      };
-      obfuscationWorker.onerror = () => reject(new Error("The browser worker stopped unexpectedly. Reload the page and try again."));
-      obfuscationWorker.postMessage({ type: "obfuscate", source, filename, configuration });
+      if (pendingRequest) return reject(new Error("The compiler is already busy."));
+      if (!worker) {
+        worker = new Worker(new URL("worker.js", appUrl), { type: "classic" });
+        worker.onmessage = ({ data: message }) => {
+          if (message.type === "progress") { if (busy) progress(message.percent, message.label); return; }
+          if (!pendingRequest) return;
+          const pending = pendingRequest; pendingRequest = null;
+          if (message.type === "error") { stopWorker(); pending.reject(new Error(message.message)); }
+          else pending.resolve(message);
+        };
+        worker.onerror = () => {
+          const pending = pendingRequest; pendingRequest = null; stopWorker();
+          pending?.reject(new Error("The browser worker stopped unexpectedly. Try again."));
+        };
+      }
+      pendingRequest = { resolve, reject };
+      worker.postMessage(data);
     });
   }
-  obfuscateButton.addEventListener("click", async () => {
-    if (!selectedFile) return;
-    clearError(); resultCard.classList.add("is-hidden"); progressWrap.classList.remove("is-hidden"); obfuscateButton.disabled = true; setProgress(7, "Reading your source file…");
-    try {
-      const source = await selectedFile.text();
-      if (!source.trim()) throw new Error("The selected file is empty.");
-      generatedSource = await runInWorker(source, selectedFile.name, configurationSnippet());
-      generatedName = selectedFile.name.replace(/\.(luau?|txt)$/i, "") + ".obfuscated.lua";
-      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-      downloadUrl = URL.createObjectURL(new Blob([generatedSource], { type: "text/plain;charset=utf-8" }));
-      setProgress(100, "Finished. Your protected download is ready.");
-      resultCard.classList.remove("is-hidden");
-    } catch (error) {
-      showError(error instanceof Error ? error.message : "Obfuscation failed. Check the source file and try again.");
-      setProgress(0, "Ready to try again.");
-    } finally {
-      obfuscateButton.disabled = !selectedFile;
+  function loadPresetMetadata() {
+    if (!metadataPromise) {
+      if ($("#runtime-state")) $("#runtime-state").textContent = "Loading compiler…";
+      metadataPromise = requestWorker({ type: "presets", names: [...$("#preset-select").options].map((option) => option.value) })
+        .then((message) => {
+          presetMetadata = message.presets;
+          if (mode() === "preset" && !dirtyControls.size) hydrateControls(); else updateDisabledControls();
+          if ($("#runtime-state")) $("#runtime-state").textContent = "Compiler ready";
+        })
+        .catch((error) => { metadataPromise = null; if ($("#runtime-state")) $("#runtime-state").textContent = "Compiler unavailable · retry by running"; throw error; });
     }
-  });
+    return metadataPromise;
+  }
+  function setBusy(value) {
+    busy = value; sourceInput.disabled = value; $("#remove-file").disabled = value; button.disabled = value || !selectedFile;
+    dropzone.setAttribute("aria-disabled", String(value)); $(".workspace").setAttribute("aria-busy", String(value));
+    document.querySelectorAll(".mode-tab, #preset-select, #name-prefix, #pretty-print, #step-grid input").forEach((input) => { input.disabled = value; });
+    updateDisabledControls();
+    updateActionHelp();
+  }
 
-  renderSteps();
+  $("#step-grid").innerHTML = steps.map(([name, label, checked]) => `<label class="step-toggle"><input type="checkbox" value="${name}" ${checked ? "checked" : ""}><span>${label}</span></label>`).join("");
+  for (const [id] of controls) $(`#${id}`).addEventListener("input", () => { dirtyControls.add(id); discardDownload(); });
+  const tabs = [...document.querySelectorAll(".mode-tab")];
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => {
+      if (busy || tab.classList.contains("active")) return;
+      tabs.forEach((item) => { item.classList.toggle("active", item === tab); item.setAttribute("aria-selected", String(item === tab)); item.tabIndex = item === tab ? 0 : -1; });
+      $("#preset-panel").classList.toggle("is-hidden", tab.dataset.mode !== "preset");
+      $("#custom-panel").classList.toggle("is-hidden", tab.dataset.mode !== "custom");
+      hydrateControls(); discardDownload();
+    });
+    tab.addEventListener("keydown", (event) => {
+      if (busy || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[next].click(); tabs[next].focus();
+    });
+  });
+  $("#preset-select").addEventListener("change", () => { hydrateControls(); discardDownload(); });
+  document.querySelectorAll("#name-prefix, #pretty-print, #step-grid input").forEach((input) => input.addEventListener("input", discardDownload));
+  sourceInput.addEventListener("change", () => setFile(sourceInput.files[0]));
+  ["dragenter", "dragover"].forEach((name) => dropzone.addEventListener(name, (event) => { event.preventDefault(); if (!busy) dropzone.classList.add("dragging"); }));
+  ["dragleave", "drop"].forEach((name) => dropzone.addEventListener(name, (event) => { event.preventDefault(); dropzone.classList.remove("dragging"); }));
+  dropzone.addEventListener("drop", (event) => setFile(event.dataTransfer.files[0]));
+  dropzone.addEventListener("keydown", (event) => { if (!busy && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); sourceInput.click(); } });
+  $("#remove-file").addEventListener("click", clearFile);
+  $("#download").addEventListener("click", () => { if (!downloadUrl) return; const link = document.createElement("a"); link.href = downloadUrl; link.download = generatedName; link.click(); });
+  window.addEventListener("pagehide", () => {
+    activeRun++;
+    const pending = pendingRequest; pendingRequest = null;
+    stopWorker(); metadataPromise = null;
+    pending?.reject(new Error("Processing was canceled when you left the page. Run again to retry."));
+    setBusy(false); discardDownload();
+  });
+  window.addEventListener("pageshow", (event) => { if (event.persisted) loadPresetMetadata().catch((error) => showError(error.message)); });
+  button.addEventListener("click", async () => {
+    if (!selectedFile || busy) return;
+    const file = selectedFile, run = ++activeRun;
+    clearError(); discardDownload(); $("#progress-wrap").classList.remove("is-hidden"); setBusy(true); progress(7, "Reading your source file…");
+    try {
+      await loadPresetMetadata();
+      if (run !== activeRun) return;
+      const source = await file.text();
+      if (run !== activeRun) return;
+      if (!source.trim()) throw new Error("The selected file is empty.");
+      const result = await requestWorker({ type: "obfuscate", source, filename: file.name, configuration: configurationSnippet() });
+      if (run !== activeRun) return;
+      generatedName = file.name.replace(/\.(luau?|txt)$/i, "") + ".obfuscated.lua";
+      downloadUrl = URL.createObjectURL(new Blob([result.output], { type: "text/plain;charset=utf-8" }));
+      syntax(result.syntaxLabel); if ($("#result-syntax")) $("#result-syntax").textContent = result.syntaxLabel;
+      progress(100, "Finished. Your protected download is ready."); $("#result-card").classList.remove("is-hidden");
+    } catch (error) {
+      if (run !== activeRun) return;
+      showError(error instanceof Error ? error.message : "Obfuscation failed. Check the source file and try again.");
+      syntax("Source could not be processed"); progress(0, "Ready to try again.");
+    } finally { if (run === activeRun) setBusy(false); }
+  });
+  hydrateControls();
+  loadPresetMetadata().catch((error) => showError(error.message));
 })();

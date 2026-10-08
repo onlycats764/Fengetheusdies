@@ -10,9 +10,9 @@ Fengetheus is a local command-line Lua obfuscator built around the Prometheus co
 
 - Local file-to-file obfuscation with no remote service required.
 
-- Presets for different transformation levels: `Minify`, `Balanced`, `Phantom`, `Wraith`, `Cipher`, `Aegis`, `Titan`, `TitanVM2`, and `StrongScalable`.
+- Presets for different transformation levels: `Minify`, `Balanced`, `Virtualized`, `Stealth`, `Encrypted`, `Hardened`, `Strong`, `Advanced`, `LargeScripts`, and `VM`.
 
-- Lua 5.1 and Luau target selection.
+- Automatic Lua 5.1 and Luau syntax detection, with optional CLI target overrides.
 
 - Custom Lua configuration files for pipeline-level control.
 
@@ -51,7 +51,7 @@ bin/fengetheus --preset Balanced --out output.lua input.lua
 The launcher can also be called directly through Lua:
 
 ```
-lua src/cli.lua --preset Titan input.lua
+lua src/cli.lua --preset Strong input.lua
 ```
 
 When `--out` is omitted, Fengetheus writes the result beside the input file using the `.obfuscated.lua` suffix. If neither a preset nor a custom configuration is provided, the `Minify` preset is used.
@@ -62,14 +62,16 @@ When `--out` is omitted, Fengetheus writes the result beside the input file usin
 | --- | --- |
 | `Minify` | Simplify and minify code without enabling the heavier obfuscation steps. |
 | `Balanced` | Apply AST transforms without virtualizing the full program; includes the bounded inlining and loop optimizations. |
-| `Phantom` | Apply the VM-based pipeline with string, number, and control-flow transformations. |
-| `Wraith` | Use a different step order with flow mutation, string splitting, VM conversion, and integrity checks. |
-| `Cipher` | Apply VM, string, anti-tamper, and constant transformations in a distinct order. |
-| `Aegis` | Apply AST hardening without the VM step. |
-| `Titan` | Use the most comprehensive standard pipeline. |
-| `TitanVM2` | Use Titan with the second-generation VM dispatch settings. |
-| `StrongScalable` | Use a strong profile for large scripts while avoiding the heaviest scope and nesting transforms. |
-| `Vmify` | Isolated VM test preset. |
+| `Virtualized` | Apply the VM-based pipeline with string, number, and control-flow transformations. |
+| `Stealth` | Use flow mutation, string splitting, VM conversion, and disguised integrity checks. |
+| `Encrypted` | Apply VM, string, anti-tamper, and constant transformations in a distinct order. |
+| `Hardened` | Apply AST hardening without the VM step. |
+| `Strong` | Use the most comprehensive standard pipeline. |
+| `Advanced` | Use Strong with the second-generation VM dispatch settings. |
+| `LargeScripts` | Use a strong profile for large scripts while avoiding the heaviest scope and nesting transforms. |
+| `VM` | Isolated VM test preset. |
+
+Previous preset names remain supported as aliases for existing scripts and configurations.
 
 Obfuscation changes code structure and may affect size, performance, or compatibility. Test the generated file with the interpreter and runtime environment that will execute it. Obfuscation is not a substitute for access control, secret management, or a secure execution boundary.
 
@@ -151,7 +153,7 @@ On Windows, the equivalent Lumora-backed regression harness is available as
 the sibling `work/Lumora` checkout; pass `-Lumora` to select another binary:
 
 ```
-powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced,TitanVM2 -Lumora C:\path\to\lumora.exe
+powershell -ExecutionPolicy Bypass -File test/obf-harness.ps1 -Preset Minify,Balanced,Advanced -Lumora C:\path\to\lumora.exe
 ```
 
 To exercise the randomised transforms across multiple deterministic builds,

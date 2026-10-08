@@ -106,7 +106,7 @@ local presets = {
 	},
 
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- PHANTOM — Replaces "Weak"
+	-- Virtualized — VM pipeline with encrypted strings and integrity checks
 	-- ───────────────────────────────────────────────────────────────────────
 -- VM ordering with AntiTamper compiled into the VM. AntiTamper runs
 -- before Vmify and is not wrapped in a post-VM TamperObfuscator loader.
@@ -117,7 +117,7 @@ local presets = {
 --           → ConstantArray(shuffled) → NumbersToExpressions
 --           → RewriteNamecalls → JunkCode → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
-	["Phantom"] = {
+	["Virtualized"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -150,7 +150,7 @@ local presets = {
 	},
 
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- WRAITH — Replaces "WeakStealth"
+	-- Stealth — VM pipeline with disguised integrity checks
 	-- ───────────────────────────────────────────────────────────────────────
 -- Stealth-focused. Uses Stealth-mode AntiTamper (which already uses
 -- _G[string.char(...)] lookups and non-literal failure loops) compiled
@@ -164,7 +164,7 @@ local presets = {
 --           → AntiTamper(stealth) → Vmify → ConditionCamouflage
 --           → JunkCode → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
-	["Wraith"] = {
+	["Stealth"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -198,7 +198,7 @@ local presets = {
 	},
 
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- CIPHER — Replaces "Medium"
+	-- Encrypted — VM pipeline with string and constant transformations
 	-- ───────────────────────────────────────────────────────────────────────
 	-- AntiSandbox and AntiTamper run before Vmify so both checks are
 -- compiled into the protected VM program. This keeps the anti-tamper
@@ -212,7 +212,7 @@ local presets = {
 	--           → NumbersToExpressions → ConditionCamouflage → JunkCode
 	--           → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
-	["Cipher"] = {
+	["Encrypted"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -268,7 +268,7 @@ local presets = {
 	},
 
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- AEGIS — New mid-tier (NO Vmify, pure AST hardening)
+	-- Hardened — AST hardening without the VM step
 	-- ───────────────────────────────────────────────────────────────────────
 	-- A VM-free preset for scripts where the bytecode VM would hit
 	-- register/locals limits.  Compensates with heavy AST-level
@@ -287,7 +287,7 @@ local presets = {
 	--           → ControlFlowMutation(1 layer, second pass) → JunkCode
 	--           → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
-	["Aegis"] = {
+	["Hardened"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -361,7 +361,7 @@ local presets = {
 	},
 
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- TITAN — Replaces "Strong"
+	-- Strong — Comprehensive VM pipeline
 	-- ───────────────────────────────────────────────────────────────────────
 	-- Maximum layering with a reorder that breaks Prometheus Strong's
 	-- signature.  Key differences from Strong:
@@ -380,7 +380,7 @@ local presets = {
 	--           → NumbersToExpressions(mutation) → RewriteNamecalls
 	--           → ConditionCamouflage → JunkCode → WrapInFunction
 	-- ═══════════════════════════════════════════════════════════════════════
-	["Titan"] = {
+	["Strong"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -453,15 +453,15 @@ local presets = {
 	},
 
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- StrongScalable — kept as a stable fallback for very large scripts
-	-- whose generated Titan output would exceed Lua's per-function
+	-- LargeScripts — kept as a stable fallback for very large scripts
+	-- whose generated Strong output would exceed Lua's per-function
 	-- local-variable or nesting limits.  Retains string encryption,
 	-- anti-tamper (XOR-obfuscated), a shuffled/rotated constant array,
 	-- numeric expression mutation, and function wrapping while avoiding
 	-- the VM, local proxification, split-string helpers, and second
 	-- ConstantArray pass.
 	-- ═══════════════════════════════════════════════════════════════════════
-	["StrongScalable"] = {
+	["LargeScripts"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -499,9 +499,9 @@ local presets = {
 	},
 
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- Vmify (test preset) — isolated VM test.  Not for production use.
+	-- VM (test preset) — isolated VM test.  Not for production use.
 	-- ═══════════════════════════════════════════════════════════════════════
-	["Vmify"] = {
+	["VM"] = {
 		LuaVersion = "Lua51",
 		VarNamePrefix = "",
 		NameGenerator = "MangledShuffled",
@@ -521,29 +521,29 @@ local presets = {
 }
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- TITANVM2 — Replaces "StrongVM2"
+-- Advanced — Comprehensive pipeline with second-generation VM dispatch
 -- ───────────────────────────────────────────────────────────────────────
--- Maximum hardening built on Titan's reordered pipeline.  Adds:
+-- Maximum hardening built on Strong's reordered pipeline.  Adds:
 --   • Dispatch-hardened Vmify (Mask + Affine + Bounce + Nonlinear +
 --     AliasCount=2) so the VM dispatcher looks nothing like standard
 --     Prometheus output.
---   • A second ControlFlowMutation pass (the first is in Titan's base;
+--   • A second ControlFlowMutation pass (the first is in Strong's base;
 --     this adds another independent mutation layer).
 --   • Bounded local-wrapper indirection on the strings-only
 --     ConstantArray (second array pass only — wrapping the first would
 --     multiply the VM runtime AST).
---   • AntiTamper is inherited before Vmify from Titan; no post-VM
+--   • AntiTamper is inherited before Vmify from Strong; no post-VM
 --     TamperObfuscator is used in this VM preset.
 --
--- Built dynamically by copying Titan's steps and injecting dispatch
+-- Built dynamically by copying Strong's steps and injecting dispatch
 -- options + an extra mutation pass.  Build the step list independently
--- so changing this preset can never mutate Titan's configuration table
+-- so changing this preset can never mutate Strong's configuration table
 -- by alias.
 -- ═══════════════════════════════════════════════════════════════════════════
-local titanVm2Steps = {}
-local titanVm2ConstantArrays = 0
-local titanVm2ControlFlowMutations = 0
-for _, step in ipairs(presets.Titan.Steps) do
+local advancedSteps = {}
+local advancedConstantArrays = 0
+local advancedControlFlowMutations = 0
+for _, step in ipairs(presets.Strong.Steps) do
 	local settings = {}
 	for key, value in pairs(step.Settings or {}) do
 		settings[key] = value
@@ -557,17 +557,17 @@ for _, step in ipairs(presets.Titan.Steps) do
 		settings.DispatchMaskMagnitude = 4096
 		settings.DispatchNoiseMagnitude = 7
 	elseif step.Name == "ConstantArray" then
-		titanVm2ConstantArrays = titanVm2ConstantArrays + 1
+		advancedConstantArrays = advancedConstantArrays + 1
 		-- Add a bounded second layer of local lookup indirection only to the
 		-- strings-only array. The first array contains VM data and is kept
 		-- lean; wrapping every generated VM scope would multiply compile time.
-		if titanVm2ConstantArrays == 2 then
+		if advancedConstantArrays == 2 then
 			settings.LocalWrapperThreshold = 1
 			settings.LocalWrapperCount = 2
 			settings.LocalWrapperArgCount = 6
 		end
 	end
-	-- Skip ProxifyLocals in TitanVM2.  The combination of double
+	-- Skip ProxifyLocals in Advanced.  The combination of double
 	-- ControlFlowMutation (which creates many opaque-predicate locals) +
 	-- ProxifyLocals (which wraps each local in a proxy) + the
 	-- dispatch-hardened VM exceeds the 200-upvalue register limit on
@@ -577,7 +577,7 @@ for _, step in ipairs(presets.Titan.Steps) do
 	if step.Name == "ProxifyLocals" then
 		-- Replace with a third ConstantArray pass (full, no wrappers) to
 		-- keep array indirection without the register explosion.
-		titanVm2Steps[#titanVm2Steps + 1] = {
+		advancedSteps[#advancedSteps + 1] = {
 			Name = "ConstantArray",
 			Settings = {
 				Threshold = 1,
@@ -588,18 +588,18 @@ for _, step in ipairs(presets.Titan.Steps) do
 			},
 		}
 	else
-	titanVm2Steps[#titanVm2Steps + 1] = {
+	advancedSteps[#advancedSteps + 1] = {
 		Name = step.Name,
 		Settings = settings,
 	}
 	end
-	-- Add an extra ControlFlowMutation pass after the first one in Titan.
+	-- Add an extra ControlFlowMutation pass after the first one in Strong.
 	-- This produces a second independent mutation layer with different
 	-- random predicates, further breaking Prometheus pattern matching.
 	if step.Name == "ControlFlowMutation" then
-		titanVm2ControlFlowMutations = titanVm2ControlFlowMutations + 1
-		if titanVm2ControlFlowMutations == 1 then
-			titanVm2Steps[#titanVm2Steps + 1] = {
+		advancedControlFlowMutations = advancedControlFlowMutations + 1
+		if advancedControlFlowMutations == 1 then
+			advancedSteps[#advancedSteps + 1] = {
 				Name = "ControlFlowMutation",
 				Settings = { Threshold = 0.5, Layers = 1 },
 			}
@@ -607,13 +607,23 @@ for _, step in ipairs(presets.Titan.Steps) do
 	end
 end
 
-presets.TitanVM2 = {
-	LuaVersion = presets.Titan.LuaVersion,
-	VarNamePrefix = presets.Titan.VarNamePrefix,
-	NameGenerator = presets.Titan.NameGenerator,
-	PrettyPrint = presets.Titan.PrettyPrint,
-	Seed = presets.Titan.Seed,
-	Steps = titanVm2Steps,
+presets.Advanced = {
+	LuaVersion = presets.Strong.LuaVersion,
+	VarNamePrefix = presets.Strong.VarNamePrefix,
+	NameGenerator = presets.Strong.NameGenerator,
+	PrettyPrint = presets.Strong.PrettyPrint,
+	Seed = presets.Strong.Seed,
+	Steps = advancedSteps,
 }
+
+-- Keep existing configurations and integrations using the same pipelines.
+presets.Phantom = presets.Virtualized
+presets.Wraith = presets.Stealth
+presets.Cipher = presets.Encrypted
+presets.Aegis = presets.Hardened
+presets.Titan = presets.Strong
+presets.TitanVM2 = presets.Advanced
+presets.StrongScalable = presets.LargeScripts
+presets.Vmify = presets.VM
 
 return presets
