@@ -34,6 +34,7 @@
     ["ProxifyLocals", "Local proxying"], ["WrapInFunction", "Function wrapping"]
   ];
   const stepLabels = new Map(steps.map(([name, label]) => [name, label]));
+  const referenceExcludedSteps = new Set(["DeadCodeElimination", "LocalCaching"]);
   const settingLabels = {
     "AntiSandbox.UseDebug": "Use debug library", "AntiSandbox.CheckExecutorAPIs": "Check executor APIs",
     "AntiSandbox.CheckTiming": "Check timing", "AntiSandbox.FailureMode": "Failure mode",
@@ -189,6 +190,7 @@
     for (const option of $("#preset-select").options) {
       const name = option.value, pipeline = presetPipelines[name];
       if (!Array.isArray(pipeline)) continue;
+      const visiblePipeline = pipeline.filter((step) => !referenceExcludedSteps.has(step.Name));
       rendered++;
       const details = document.createElement("details");
       details.className = "preset-reference-card";
@@ -203,7 +205,7 @@
       summaryCopy.append(title, description);
       const count = document.createElement("span");
       count.className = "preset-reference-count";
-      count.textContent = `${pipeline.length} ${pipeline.length === 1 ? "step" : "steps"}`;
+      count.textContent = `${visiblePipeline.length} ${visiblePipeline.length === 1 ? "step" : "steps"}`;
       const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       chevron.classList.add("icon", "preset-reference-chevron");
       chevron.setAttribute("aria-hidden", "true");
@@ -216,7 +218,7 @@
       const occurrences = new Map();
       const list = document.createElement("ol");
       list.className = "preset-step-list";
-      for (const [index, step] of pipeline.entries()) {
+      for (const [index, step] of visiblePipeline.entries()) {
         const item = document.createElement("li");
         item.className = "preset-step";
         const heading = document.createElement("div");
@@ -228,7 +230,7 @@
         const stepName = stepLabels.get(step.Name) || humanize(step.Name);
         const occurrence = (occurrences.get(step.Name) || 0) + 1;
         occurrences.set(step.Name, occurrence);
-        const total = pipeline.filter((entry) => entry.Name === step.Name).length;
+        const total = visiblePipeline.filter((entry) => entry.Name === step.Name).length;
         label.textContent = total > 1 ? `${stepName} · pass ${occurrence}` : stepName;
         heading.append(number, label);
         item.append(heading);
