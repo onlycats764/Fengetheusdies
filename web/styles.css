@@ -148,6 +148,33 @@ button, input, select, a, summary, label[role="button"] { touch-action: manipula
 .result-copy p { margin: 0; color: var(--success); font-size: 12px; line-height: 1.6; }
 .download-button { flex-shrink: 0; background: var(--success); color: #142b1b; }
 .download-button:hover { background: #c6e1ca; }
+.preset-reference { margin: 42px 0 72px; padding-top: 30px; border-top: 1px solid var(--outline-variant); }
+.preset-reference-header { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 18px; }
+.preset-reference-header h2 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.35px; }
+.preset-reference-header p { max-width: 720px; margin: 9px 0 0; color: var(--on-surface-variant); font-size: 13px; line-height: 1.6; }
+.preset-reference-header .preset-reference-status { flex-shrink: 0; font-size: 12px; }
+.preset-reference-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.preset-reference-card { min-width: 0; overflow: hidden; border: 1px solid var(--outline-variant); border-radius: 18px; background: var(--surface-container-low); }
+.preset-reference-card > summary { display: flex; min-height: 78px; align-items: center; gap: 14px; padding: 15px 17px; cursor: pointer; list-style: none; }
+.preset-reference-card > summary::-webkit-details-marker { display: none; }
+.preset-reference-card > summary:hover { background: var(--surface-container); }
+.preset-reference-summary { display: grid; min-width: 0; flex: 1; gap: 4px; }
+.preset-reference-summary strong { font-size: 14px; font-weight: 500; }
+.preset-reference-summary small { color: var(--on-surface-variant); font-size: 11px; line-height: 1.5; }
+.preset-reference-count { flex-shrink: 0; color: var(--on-surface-variant); font: 11px 'Roboto Mono', monospace; white-space: nowrap; }
+.preset-reference-chevron { width: 17px; height: 17px; color: var(--on-surface-variant); transition: transform .18s ease; }
+.preset-reference-card[open] > summary { border-bottom: 1px solid var(--outline-variant); }
+.preset-reference-card[open] .preset-reference-chevron { transform: rotate(180deg); }
+.preset-step-list { margin: 0; padding: 4px 17px 10px; list-style: none; }
+.preset-step { padding: 13px 0; border-bottom: 1px solid var(--outline-variant); }
+.preset-step:last-child { border-bottom: 0; }
+.preset-step-heading { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 500; }
+.preset-step-number { min-width: 24px; color: var(--primary); font: 10px 'Roboto Mono', monospace; }
+.preset-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 16px; margin: 9px 0 0 34px; }
+.preset-settings > div { display: flex; min-width: 0; justify-content: space-between; gap: 12px; }
+.preset-settings dt { min-width: 0; color: var(--on-surface-variant); font-size: 11px; line-height: 1.5; }
+.preset-settings dd { margin: 0; color: var(--on-surface); font: 10px/1.5 'Roboto Mono', monospace; overflow-wrap: anywhere; text-align: right; }
+.preset-step-empty { margin: 7px 0 0 34px; color: var(--on-surface-variant); font-size: 11px; }
 .is-hidden { display: none !important; }
 .workspace[aria-busy="true"] .dropzone { pointer-events: none; opacity: .6; }
 input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-allowed; }
@@ -182,6 +209,8 @@ input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-
   .result-card { flex-wrap: wrap; padding: 22px; }
   .result-copy { flex-basis: calc(100% - 60px); }
   .download-button { width: 100%; margin-top: 4px; }
+  .preset-reference-header { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .preset-reference-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 380px) {
   .surface { padding: 20px; }
@@ -190,6 +219,7 @@ input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-
   .step-grid, .advanced-grid { grid-template-columns: 1fr; }
   .advanced-grid .field > span { min-height: auto; }
   .status-label { font-size: 10px; }
+  .preset-settings { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

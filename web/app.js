@@ -6,7 +6,7 @@
   const sourceInput = $("#source-file"), dropzone = $("#dropzone"), button = $("#obfuscate");
   const dirtyControls = new Set();
   let selectedFile = null, downloadUrl = null, generatedName = "protected.lua";
-  let worker = null, pendingRequest = null, metadataPromise = null, presetMetadata = null, busy = false;
+  let worker = null, pendingRequest = null, metadataPromise = null, presetMetadata = null, presetPipelines = null, busy = false;
   let activeRun = 0;
 
   const descriptions = {
@@ -33,6 +33,30 @@
     ["ConditionCamouflage", "Condition camouflage"], ["JunkCode", "Junk code"],
     ["ProxifyLocals", "Local proxying"], ["WrapInFunction", "Function wrapping"]
   ];
+  const stepLabels = new Map(steps.map(([name, label]) => [name, label]));
+  const settingLabels = {
+    "AntiSandbox.UseDebug": "Use debug library", "AntiSandbox.CheckExecutorAPIs": "Check executor APIs",
+    "AntiSandbox.CheckTiming": "Check timing", "AntiSandbox.FailureMode": "Failure mode",
+    "AntiSandbox.Intensity": "Intensity", "AntiTamper.UseDebug": "Use debug library",
+    "AntiTamper.Stealth": "Stealth checks", "ConstantArray.Threshold": "Extraction threshold",
+    "ConstantArray.StringsOnly": "Strings only", "ConstantArray.Shuffle": "Shuffle constants",
+    "ConstantArray.Rotate": "Rotate array", "ConstantArray.LocalWrapperThreshold": "Local wrapper threshold",
+    "ControlFlowMutation.Threshold": "Mutation threshold", "ControlFlowMutation.Layers": "Control-flow layers",
+    "ConditionCamouflage.Threshold": "Camouflage threshold", "JunkCode.Chance": "Junk insertion",
+    "JunkCode.MinJunk": "Minimum junk blocks", "JunkCode.MaxJunk": "Maximum junk blocks",
+    "JunkCode.MaxDepth": "Maximum nesting depth", "NumbersToExpressions.MixedArithmetic": "Mixed arithmetic",
+    "NumbersToExpressions.NumberRepresentationMutation": "Number representation mutation",
+    "OpaquePredicate.Threshold": "Predicate threshold", "RewriteNamecalls.Threshold": "Rewrite threshold",
+    "RewriteNamecalls.BracketIndex": "Bracket indexing", "SplitStrings.Threshold": "Split threshold",
+    "SplitStrings.MinLength": "Minimum string length", "SplitStrings.MaxLength": "Maximum string length",
+    "SplitStrings.ConcatenationType": "Concatenation type", "SplitStrings.CustomFunctionType": "Decoder type",
+    "SplitStrings.CustomLocalFunctionsCount": "Decoder functions", "TamperObfuscator.XORLayers": "XOR layers",
+    "UnrollLoops.MaxIterations": "Maximum loop iterations", "InlineFunctions.MaxArguments": "Maximum arguments",
+    "Vmify.DispatchAliasCount": "Dispatch aliases", "Vmify.DispatchMask": "Masked dispatch",
+    "Vmify.DispatchAffine": "Affine dispatch", "Vmify.DispatchBounce": "Bounce dispatch",
+    "Vmify.DispatchNonlinear": "Nonlinear dispatch", "Vmify.DispatchMaskMagnitude": "Mask magnitude",
+    "Vmify.DispatchNoiseMagnitude": "Dispatch noise magnitude"
+  };
   // An edited control overrides only its own field. Repeated preset passes
   // retain their distinct compiler settings while that field is untouched.
   const controls = [
@@ -147,6 +171,96 @@
     updateDisabledControls();
     $("#preset-description").textContent = descriptions[$("#preset-select").value] || "A configurable Fengetheus transformation profile.";
   }
+  function humanize(value) {
+    return value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^Vm/, "VM").replace(/^Xor/, "XOR");
+  }
+  function displaySettingValue(value) {
+    if (typeof value === "boolean") return value ? "On" : "Off";
+    if (value == null) return "None";
+    if (Array.isArray(value)) return `[${value.map(displaySettingValue).join(", ")}]`;
+    if (typeof value === "object") return JSON.stringify(value);
+    return typeof value === "string" ? JSON.stringify(value) : String(value);
+  }
+  function renderPresetReference() {
+    const root = $("#preset-reference-list"), status = $("#preset-reference-status");
+    if (!root || !presetPipelines) return;
+    root.replaceChildren();
+    let rendered = 0;
+    for (const option of $("#preset-select").options) {
+      const name = option.value, pipeline = presetPipelines[name];
+      if (!Array.isArray(pipeline)) continue;
+      rendered++;
+      const details = document.createElement("details");
+      details.className = "preset-reference-card";
+      details.open = name === "Balanced";
+      const summary = document.createElement("summary");
+      const summaryCopy = document.createElement("span");
+      summaryCopy.className = "preset-reference-summary";
+      const title = document.createElement("strong");
+      title.textContent = name;
+      const description = document.createElement("small");
+      description.textContent = descriptions[name] || "Built-in transformation profile.";
+      summaryCopy.append(title, description);
+      const count = document.createElement("span");
+      count.className = "preset-reference-count";
+      count.textContent = `${pipeline.length} ${pipeline.length === 1 ? "step" : "steps"}`;
+      const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      chevron.classList.add("icon", "preset-reference-chevron");
+      chevron.setAttribute("aria-hidden", "true");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", "icons.svg#chevron-down");
+      chevron.append(use);
+      summary.append(summaryCopy, count, chevron);
+      details.append(summary);
+
+      const occurrences = new Map();
+      const list = document.createElement("ol");
+      list.className = "preset-step-list";
+      for (const [index, step] of pipeline.entries()) {
+        const item = document.createElement("li");
+        item.className = "preset-step";
+        const heading = document.createElement("div");
+        heading.className = "preset-step-heading";
+        const number = document.createElement("span");
+        number.className = "preset-step-number";
+        number.textContent = String(index + 1).padStart(2, "0");
+        const label = document.createElement("span");
+        const stepName = stepLabels.get(step.Name) || humanize(step.Name);
+        const occurrence = (occurrences.get(step.Name) || 0) + 1;
+        occurrences.set(step.Name, occurrence);
+        const total = pipeline.filter((entry) => entry.Name === step.Name).length;
+        label.textContent = total > 1 ? `${stepName} · pass ${occurrence}` : stepName;
+        heading.append(number, label);
+        item.append(heading);
+
+        const entries = Object.entries(step.Settings || {}).sort(([a], [b]) => a.localeCompare(b));
+        if (entries.length) {
+          const settings = document.createElement("dl");
+          settings.className = "preset-settings";
+          for (const [key, value] of entries) {
+            const row = document.createElement("div");
+            const term = document.createElement("dt");
+            term.textContent = settingLabels[`${step.Name}.${key}`] || humanize(key);
+            const definition = document.createElement("dd");
+            definition.textContent = displaySettingValue(value);
+            row.append(term, definition);
+            settings.append(row);
+          }
+          item.append(settings);
+        } else {
+          const empty = document.createElement("p");
+          empty.className = "preset-step-empty";
+          empty.textContent = "No additional settings";
+          item.append(empty);
+        }
+        list.append(item);
+      }
+      details.append(list);
+      root.append(details);
+    }
+    if (rendered) status.classList.add("is-hidden");
+    else status.textContent = "Preset settings are unavailable.";
+  }
   function stopWorker() { worker?.terminate(); worker = null; }
   function requestWorker(data) {
     return new Promise((resolve, reject) => {
@@ -174,9 +288,16 @@
       metadataPromise = requestWorker({ type: "presets", names: [...$("#preset-select").options].map((option) => option.value) })
         .then((message) => {
           presetMetadata = message.presets;
+          presetPipelines = message.pipelines;
+          renderPresetReference();
           if (mode() === "preset" && !dirtyControls.size) hydrateControls(); else updateDisabledControls();
         })
-        .catch((error) => { metadataPromise = null; throw error; });
+        .catch((error) => {
+          metadataPromise = null;
+          const status = $("#preset-reference-status");
+          if (status) { status.textContent = "Preset settings could not be loaded."; status.classList.remove("is-hidden"); }
+          throw error;
+        });
     }
     return metadataPromise;
   }

@@ -62,25 +62,26 @@ self.onmessage = async (event) => {
     })();
     lua = await runtimePromise;
     if (event.data.type === "presets") {
-      const allPresets = await lua.doString(`
+      const presetData = await lua.doString(`
         local feng=require("fengetheus")
-        local metadata={}
+        local metadata, pipelines={},{}
         for name,preset in pairs(feng.Presets) do
-          local profile={}
+          local profile, pipeline={},{}
           for _,step in ipairs(preset.Steps or {}) do
-            if not profile[step.Name] then
-              local settings={}
-              for key,descriptor in pairs(feng.Pipeline.Steps[step.Name].SettingsDescriptor or {}) do settings[key]=descriptor.default end
-              for key,value in pairs(step.Settings or {}) do settings[key]=value end
-              profile[step.Name]=settings
-            end
+            local settings={}
+            for key,descriptor in pairs(feng.Pipeline.Steps[step.Name].SettingsDescriptor or {}) do settings[key]=descriptor.default end
+            for key,value in pairs(step.Settings or {}) do settings[key]=value end
+            if not profile[step.Name] then profile[step.Name]=settings end
+            pipeline[#pipeline+1]={Name=step.Name,Settings=settings}
           end
           metadata[name]=profile
+          pipelines[name]=pipeline
         end
-        return metadata
+        return {presets=metadata,pipelines=pipelines}
       `);
-      const presets = Object.fromEntries(event.data.names.map((name) => [name, allPresets[name]]));
-      self.postMessage({ type: "presets", presets });
+      const presets = Object.fromEntries(event.data.names.map((name) => [name, presetData.presets[name]]));
+      const pipelines = Object.fromEntries(event.data.names.map((name) => [name, presetData.pipelines[name]]));
+      self.postMessage({ type: "presets", presets, pipelines });
       return;
     }
     lua.global.set("__feng_source", event.data.source);
