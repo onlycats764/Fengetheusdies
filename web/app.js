@@ -171,14 +171,12 @@
   }
   function loadPresetMetadata() {
     if (!metadataPromise) {
-      if ($("#runtime-state")) $("#runtime-state").textContent = "Loading compiler…";
       metadataPromise = requestWorker({ type: "presets", names: [...$("#preset-select").options].map((option) => option.value) })
         .then((message) => {
           presetMetadata = message.presets;
           if (mode() === "preset" && !dirtyControls.size) hydrateControls(); else updateDisabledControls();
-          if ($("#runtime-state")) $("#runtime-state").textContent = "Compiler ready";
         })
-        .catch((error) => { metadataPromise = null; if ($("#runtime-state")) $("#runtime-state").textContent = "Compiler unavailable · retry by running"; throw error; });
+        .catch((error) => { metadataPromise = null; throw error; });
     }
     return metadataPromise;
   }

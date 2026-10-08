@@ -39,12 +39,6 @@ button, input, select, a, summary, label[role="button"] { touch-action: manipula
 .brand { display: inline-flex; gap: 12px; align-items: center; color: var(--on-surface); text-decoration: none; font-size: 21px; font-weight: 600; letter-spacing: -.6px; }
 .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 15px; color: var(--on-primary-container); background: var(--primary-container); }
 .brand-mark .icon { width: 24px; height: 24px; }
-.header-actions { display: flex; gap: 20px; align-items: center; }
-.local-badge { display: inline-flex; gap: 8px; align-items: center; color: var(--on-surface-variant); font-size: 13px; }
-.local-badge .icon { width: 17px; height: 17px; color: var(--success); }
-.text-button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border: 1px solid var(--outline-variant); border-radius: 24px; color: var(--on-surface-variant); text-decoration: none; font-size: 13px; font-weight: 500; transition: background .18s; }
-.text-button .icon { width: 15px; height: 15px; }
-.text-button:hover { background: var(--surface-container-high); }
 .shell { width: min(1160px, calc(100% - 80px)); margin: 0 auto; }
 .hero { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 62px 8px 42px; }
 .eyebrow { margin: 0 0 14px; color: var(--primary); font-size: 14px; font-weight: 500; }
@@ -154,8 +148,6 @@ button, input, select, a, summary, label[role="button"] { touch-action: manipula
 .result-copy p { margin: 0; color: var(--success); font-size: 12px; line-height: 1.6; }
 .download-button { flex-shrink: 0; background: var(--success); color: #142b1b; }
 .download-button:hover { background: #c6e1ca; }
-.site-footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 44px; padding: 24px 8px 32px; border-top: 1px solid #222127; color: #9b92a6; font-size: 12px; }
-.footer-divider { margin: 0 12px; color: #625969; }
 .is-hidden { display: none !important; }
 .workspace[aria-busy="true"] .dropzone { pointer-events: none; opacity: .6; }
 input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-allowed; }
@@ -174,9 +166,6 @@ input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-
   .site-header, .shell { width: calc(100% - 32px); }
   .brand { font-size: 19px; }
   .brand-mark { width: 38px; height: 38px; border-radius: 13px; }
-  .header-actions { gap: 12px; }
-  .local-badge { display: none; }
-  .text-button { padding: 0 12px; }
   .hero { padding: 36px 4px 28px; gap: 14px; }
   .hero h1 { max-width: 470px; font-size: 34px; letter-spacing: -1px; }
   .hero-copy { font-size: 14px; margin-top: 14px; }
@@ -193,7 +182,6 @@ input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-
   .result-card { flex-wrap: wrap; padding: 22px; }
   .result-copy { flex-basis: calc(100% - 60px); }
   .download-button { width: 100%; margin-top: 4px; }
-  .site-footer { margin-top: 32px; font-size: 11px; padding-left: 4px; padding-right: 4px; }
 }
 @media (max-width: 380px) {
   .surface { padding: 20px; }
@@ -201,7 +189,6 @@ input:disabled, select:disabled, .mode-tab:disabled { opacity: .55; cursor: not-
   .mode-tab { gap: 6px; font-size: 12px; }
   .step-grid, .advanced-grid { grid-template-columns: 1fr; }
   .advanced-grid .field > span { min-height: auto; }
-  .site-footer { flex-direction: column; gap: 10px; }
   .status-label { font-size: 10px; }
 }
 @media (prefers-reduced-motion: reduce) {

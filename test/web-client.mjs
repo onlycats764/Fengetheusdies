@@ -54,7 +54,7 @@ const document = {
 class LocalWorker {
   constructor() {
     workers.push(this);
-    const self = { location: { href: "http://localhost/worker.js" }, postMessage: (data) => this.onmessage?.({ data }) };
+    const self = { location: { href: "http://localhost/worker.js" }, postMessage: (data) => { this.lastResponse = data; this.onmessage?.({ data }); } };
     self.wasmoon = { LuaFactory: class extends wasmoon.LuaFactory {
       constructor() { super(resolve(root, "web/vendor/wasmoon/glue.wasm")); }
       async createEngine(options) { const engine = await super.createEngine(options); engines.push(engine); return engine; }
@@ -85,7 +85,7 @@ async function waitFor(predicate) {
   for (let i = 0; i < 1000; i++) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 10)); }
   throw new Error("Client did not reach the expected state.");
 }
-await waitFor(() => elements.get("runtime-state").textContent === "Compiler ready" || !elements.get("error-box").classList.contains("is-hidden"));
+await waitFor(() => workers.at(-1)?.lastResponse?.type === "presets" || !elements.get("error-box").classList.contains("is-hidden"));
 assert.equal(elements.get("error-box").textContent, "", "preset metadata initialization failed");
 assert.equal(elements.get("strings-only").checked, true, "Balanced defaults did not hydrate");
 assert.equal(elements.get("vm-mask").disabled, true, "absent preset step should be disabled");
@@ -162,7 +162,7 @@ const requestCount = requests.length;
 finishRead("return 99"); await canceledRead;
 assert.equal(requests.length, requestCount, "canceled file read submitted a stale job");
 windowListeners.pageshow({ persisted: true });
-await waitFor(() => elements.get("runtime-state").textContent === "Compiler ready");
+await waitFor(() => workers.at(-1)?.lastResponse?.type === "presets");
 await upload("return 10"); await run();
 assert.equal(elements.get("error-box").textContent, "", "restored page could not restart its compiler");
 windowListeners.pagehide();
