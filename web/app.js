@@ -36,7 +36,7 @@
   const stepLabels = new Map(steps.map(([name, label]) => [name, label]));
   const referenceExcludedSteps = new Set(["DeadCodeElimination", "LocalCaching"]);
   const settingLabels = {
-    "AntiTamper.Stealth": "Stealth checks", "ConstantArray.Threshold": "Extraction threshold",
+    "AntiTamper.Stealth": "Stealth mode", "ConstantArray.Threshold": "Extraction threshold",
     "ConstantArray.StringsOnly": "Strings only", "ControlFlowMutation.Threshold": "Mutation threshold",
     "ControlFlowMutation.Layers": "Control-flow layers", "JunkCode.Chance": "Junk insertion",
     "OpaquePredicate.Threshold": "Predicate threshold",
