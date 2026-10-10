@@ -79,6 +79,12 @@ for _, stealth in ipairs({ false, true }) do
 		local snapshotStart = assert(generated:find("local refs", 1, true), "refs snapshot missing")
 		local sanityStart = assert(generated:find("for%s+i%s*=", 1), "sanity loop missing")
 		assert(snapshotStart < sanityStart, "refs must be captured before checks begin")
+		if stealth then
+			assert(generated:find("(getfenv())[string.char(", 1, true),
+				"stealth lookups must read globals from the current environment")
+			assert(not generated:find("_G[string.char(", 1, true),
+				"stealth lookups must not read encoded globals from shared _G")
+		end
 		for _, name in ipairs(globals) do
 			assert(generated:find(name .. "%s*="), "missing snapshot for " .. name)
 			local check = stealth and ("refs." .. name) or nil

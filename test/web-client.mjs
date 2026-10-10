@@ -19,11 +19,13 @@ class Element {
     this.checked = /\bchecked\b/.test(attributes);
     this.disabled = /\bdisabled\b/.test(attributes);
     this.dataset = { mode: attributes.match(/data-mode="([^"]*)"/)?.[1] };
-    this.style = {}; this.listeners = {}; this.files = [];
+    this.style = {}; this.listeners = {}; this.files = []; this.children = [];
     const classes = new Set((attributes.match(/class="([^"]*)"/)?.[1] || "").split(" "));
     this.classList = { add: (name) => classes.add(name), remove: (name) => classes.delete(name), contains: (name) => classes.has(name), toggle: (name, value) => value ? classes.add(name) : classes.delete(name) };
   }
   addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
+  append(...children) { this.children.push(...children); }
+  replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) { this[name] = value; }
   async emit(name, event = {}) { for (const callback of this.listeners[name] || []) await callback({ target: this, preventDefault() {}, ...event }); }
   click() { this.clicked = true; this.emit("click"); }
@@ -49,7 +51,8 @@ const document = {
   currentScript: { src: "http://localhost/app.js" },
   querySelector: (selector) => selector === ".mode-tab.active" ? tabs.find((tab) => tab.classList.contains("active")) : [".workspace", ".action-help", ".progress-track"].includes(selector) ? elements.get(selector.slice(1)) : selectAll(selector)[0] || null,
   querySelectorAll: selectAll,
-  createElement: () => new Element()
+  createElement: () => new Element(),
+  createElementNS: () => new Element()
 };
 class LocalWorker {
   constructor() {
@@ -127,6 +130,8 @@ await upload("local continue = 9; return continue", "lua-in-luau.luau");
 await run();
 assert.equal(engine.global.get("__test_cfg").LuaVersion, "Lua51");
 assert.equal(elements.get("syntax-state").textContent, "Lua 5.1 detected");
+engine.global.set("__balanced_output", await [...downloads.values()].at(-1).text());
+await engine.doString("local chunk, compileError = load(__balanced_output); assert(chunk, compileError)");
 await tabs[0].emit("keydown", { key: "ArrowRight" });
 assert.equal(tabs[1].tabIndex, 0); assert.equal(tabs[0].tabIndex, -1); assert.ok(tabs[1].focused);
 elements.get("step-grid").inputs.forEach((input) => { input.checked = ["ConstantFolding", "ConstantArray"].includes(input.value); });
@@ -134,6 +139,20 @@ elements.get("constant-threshold").value = "0.35";
 await upload("return 7"); await run();
 cfg = engine.global.get("__test_cfg");
 assert.equal(cfg.Seed, 0); assert.equal(cfg.Steps.find((step) => step.Name === "ConstantArray").Settings.Threshold, 0.35);
+const screenshotSteps = ["ConstantFolding", "DeadCodeElimination", "RedundantOperationElimination", "LocalCaching", "Vmify", "AntiTamper"];
+elements.get("step-grid").inputs.forEach((input) => { input.checked = screenshotSteps.includes(input.value); });
+for (const id of ["vm-mask", "vm-affine", "vm-bounce", "vm-nonlinear", "strings-only", "tamper-stealth"]) elements.get(id).checked = true;
+await upload('local iter = string.gmatch("hello", "l"); return iter()'); await run();
+assert.equal(elements.get("error-box").textContent, "", "custom VM + stealth anti-tamper pipeline failed");
+cfg = engine.global.get("__test_cfg");
+assert.deepEqual(cfg.Steps.map((step) => step.Name), screenshotSteps, "custom regression did not use the screenshot pipeline");
+const vmSettings = cfg.Steps.find((step) => step.Name === "Vmify").Settings;
+assert.equal(vmSettings.DispatchMask, true); assert.equal(vmSettings.DispatchAffine, true);
+assert.equal(vmSettings.DispatchBounce, true); assert.equal(vmSettings.DispatchNonlinear, true);
+assert.equal(cfg.Steps.find((step) => step.Name === "AntiTamper").Settings.Stealth, true);
+engine.global.set("__stealth_output", await [...downloads.values()].at(-1).text());
+await engine.doString("local chunk, compileError = load(__stealth_output); assert(chunk, compileError)");
+await tabs[0].emit("click"); await choosePreset("Minify");
 await upload("if then"); await run();
 assert.match(elements.get("error-box").textContent, /invalid in both Lua 5\.1 and Luau/);
 assert.match(elements.get("error-box").textContent, /Lua:.*Parsing Error/s);

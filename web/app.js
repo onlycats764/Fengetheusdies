@@ -134,7 +134,6 @@
     if (name === "Vmify") Object.assign(settings, { DispatchMaskMagnitude: 4096, DispatchNoiseMagnitude: 7 });
     if (name === "AntiTamper") settings.UseDebug = false;
     if (name === "AntiSandbox") Object.assign(settings, { UseDebug: false, CheckExecutorAPIs: false, CheckTiming: true, FailureMode: "mixed", Intensity: 3 });
-    if (name === "TamperObfuscator") settings.XORLayers = 1;
     return settings;
   }
   function configurationSnippet() {

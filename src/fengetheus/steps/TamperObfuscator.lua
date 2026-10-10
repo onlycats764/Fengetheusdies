@@ -1,19 +1,10 @@
 --
 -- TamperObfuscator.lua
 --
--- This Step makes the AntiTamper / AntiSandbox generated code illegible to
--- dump bots and deobfuscators.  It works by locating all leading `do ... end`
--- blocks that AntiTamper and/or AntiSandbox inserted at the top of the script
--- body, serializing them back to source, XOR-encrypting the source bytes
--- with a per-build key, and replacing ALL of them with a single compact
--- self-decoding loader that unpacks and executes the original code at runtime
--- via loadstring.
---
--- The result is that a static dumper sees only an opaque byte string and a
--- tiny decoder loop — it cannot pattern-match the anti-tamper checks,
--- recognize the sanity-loop structure, or extract the builtin snapshot list.
--- The decoder itself is polymorphic (random variable names) so it cannot
--- be fingerprinted either.
+-- This Step wraps leading AntiTamper / AntiSandbox blocks in a runtime loader.
+-- It encodes source bytes with a position-dependent affine transform and
+-- permutes their order per build instead of using the old repeating-key XOR.
+-- This is source obfuscation, not cryptographic encryption.
 
 local Step = require("fengetheus.step")
 local Ast = require("fengetheus.ast")
@@ -24,37 +15,10 @@ local RandomStrings = require("fengetheus.randomStrings")
 local logger = require("logger")
 
 local TamperObfuscator = Step:extend()
-TamperObfuscator.Description = "Wraps AntiTamper/AntiSandbox generated code in a self-decoding XOR loader so the integrity checks are illegible to static dumpers."
+TamperObfuscator.Description = "Wraps integrity checks in a loader with position-dependent byte encoding and a per-build byte permutation."
 TamperObfuscator.Name = "Tamper Obfuscator"
 
-TamperObfuscator.SettingsDescriptor = {
-	XORLayers = {
-		type = "number",
-		default = 1,
-		min = 1,
-		max = 4,
-		description = "Number of XOR key layers applied to the payload.",
-	},
-}
-
-function TamperObfuscator:init()
-	self.XORLayers = self.XORLayers or 1
-end
-
--- Manual byte XOR (0-255) — no dependency on the `bit` library.
-local function byteXor(a, b)
-	local result = 0
-	local pow = 1
-	for _ = 1, 8 do
-		if (a % 2) ~= (b % 2) then
-			result = result + pow
-		end
-		a = math.floor(a / 2)
-		b = math.floor(b / 2)
-		pow = pow * 2
-	end
-	return result
-end
+function TamperObfuscator:init() end
 
 local function stringToBytes(str)
 	local bytes = {}
@@ -64,13 +28,49 @@ local function stringToBytes(str)
 	return bytes
 end
 
-local function xorBytesSafe(bytes, key)
-	local out = {}
-	local klen = #key
-	for i = 1, #bytes do
-		out[i] = byteXor(bytes[i], key[((i - 1) % klen) + 1])
+local function gcd(a, b)
+	while b ~= 0 do
+		a, b = b, a % b
 	end
-	return out
+	return a
+end
+
+local function chooseStride(length)
+	if length <= 1 then
+		return 1
+	end
+	for _ = 1, 64 do
+		local stride = math.random(1, length - 1)
+		if gcd(stride, length) == 1 then
+			return stride
+		end
+	end
+	for stride = 1, length - 1 do
+		if gcd(stride, length) == 1 then
+			return stride
+		end
+	end
+	return 1
+end
+
+local function encodeBytes(bytes, multiplier, offset, step, stride)
+	local encoded = {}
+	local length = #bytes
+	for index = 1, length do
+		local shuffledIndex = ((index - 1) * stride) % length + 1
+		local positionOffset = (offset + ((index - 1) * step) % 256) % 256
+		encoded[shuffledIndex] = (bytes[index] * multiplier + positionOffset) % 256
+	end
+	return encoded
+end
+
+local function inverseModulo256(multiplier)
+	for inverse = 1, 255 do
+		if (multiplier * inverse) % 256 == 1 then
+			return inverse
+		end
+	end
+	error("TamperObfuscator: affine multiplier has no inverse", 0)
 end
 
 local function bytesToEscapedString(bytes)
@@ -90,88 +90,26 @@ local function randIdent()
 	return first .. rest
 end
 
--- Build a polymorphic decoder as Lua 5.1 source using direct string
--- concatenation (no fragile string.format with dozens of placeholders).
--- The decoder:
---   1. Defines a local XOR helper function.
---   2. Builds a key table from a numeric literal.
---   3. Decodes the escaped payload string byte-by-byte into a table.
---   4. Applies per-layer XOR passes.
---   5. Reassembles the plaintext string.
---   6. Calls loadstring/load and executes the result.
-local function buildDecoder(escapedPayload, keyBytes, layers)
-	local concat = table.concat
-
-	-- Randomized variable names.
+-- Build a polymorphic decoder as Lua 5.1 source. Encoded bytes are read in a
+-- modular permutation, shifted by their position, then passed through the
+-- inverse of a per-build odd multiplier modulo 256.
+local function buildDecoder(escapedPayload, inverse, offset, step, stride)
 	local v = {
-		byte = randIdent(),
-		char = randIdent(),
-		xorFn = randIdent(),
-		xorA = randIdent(),
-		xorB = randIdent(),
-		xorR = randIdent(),
-		xorP = randIdent(),
-		key = randIdent(),
-		payload = randIdent(),
-		result = randIdent(),
-		idx = randIdent(),
-		loadstr = randIdent(),
-		fn = randIdent(),
+		byte = randIdent(), char = randIdent(), payload = randIdent(),
+		decoded = randIdent(), result = randIdent(), idx = randIdent(),
+		encodedIdx = randIdent(), shift = randIdent(), loadstr = randIdent(), fn = randIdent(),
 	}
-
-	-- Key table literal: {72,15,201,...}
-	local keyParts = {}
-	for i = 1, #keyBytes do
-		keyParts[i] = tostring(keyBytes[i])
-	end
-	local keyLiteral = "{" .. concat(keyParts, ",") .. "}"
-
-	-- Build the decoder source line by line.
 	local lines = {}
-
-	-- Locals for string.byte / string.char
 	table.insert(lines, "local " .. v.byte .. "=string.byte")
 	table.insert(lines, "local " .. v.char .. "=string.char")
-
-	-- XOR helper function
-	table.insert(lines, "local function " .. v.xorFn .. "(" .. v.xorA .. "," .. v.xorB .. ")")
-	table.insert(lines, "  local " .. v.xorR .. "=0")
-	table.insert(lines, "  local " .. v.xorP .. "=1")
-	table.insert(lines, "  while " .. v.xorA .. ">0 or " .. v.xorB .. ">0 do")
-	table.insert(lines, "    if (" .. v.xorA .. "%2)~=(" .. v.xorB .. "%2) then " .. v.xorR .. "=" .. v.xorR .. "+" .. v.xorP .. " end")
-	table.insert(lines, "    " .. v.xorA .. "=math.floor(" .. v.xorA .. "/2)")
-	table.insert(lines, "    " .. v.xorB .. "=math.floor(" .. v.xorB .. "/2)")
-	table.insert(lines, "    " .. v.xorP .. "=" .. v.xorP .. "*2")
-	table.insert(lines, "  end")
-	table.insert(lines, "  return " .. v.xorR)
-	table.insert(lines, "end")
-
-	-- Key table
-	table.insert(lines, "local " .. v.key .. "=" .. keyLiteral)
-
-	-- Payload byte table: decode the escaped string into a table of bytes
-	table.insert(lines, "local " .. v.payload .. "={}")
-	table.insert(lines, "for " .. v.idx .. "=1,#" .. escapedPayload .. " do")
-	table.insert(lines, "  " .. v.payload .. "[" .. v.idx .. "]=" .. v.byte .. "(" .. escapedPayload .. "," .. v.idx .. ")")
-	table.insert(lines, "end")
-
-	-- Per-layer XOR passes. Each layer applies the key with a different
-	-- starting offset, producing a multi-pass decoder.
-	for layer = 1, layers do
-		local offset = (layer - 1) % #keyBytes
-		local layerIdx = randIdent()
-		table.insert(lines, "for " .. layerIdx .. "=1,#" .. v.payload .. " do")
-		table.insert(lines, "  " .. v.payload .. "[" .. layerIdx .. "]=" .. v.xorFn .. "(" .. v.payload .. "[" .. layerIdx .. "]," .. v.key .. "[((" .. layerIdx .. "-1+" .. offset .. ")%" .. #keyBytes .. ")+1])")
-		table.insert(lines, "end")
-	end
-
-	-- Reassemble plaintext
-	table.insert(lines, "local " .. v.result .. '=""')
+	table.insert(lines, "local " .. v.payload .. "=" .. escapedPayload)
+	table.insert(lines, "local " .. v.decoded .. "={}")
 	table.insert(lines, "for " .. v.idx .. "=1,#" .. v.payload .. " do")
-	table.insert(lines, "  " .. v.result .. "=" .. v.result .. ".." .. v.char .. "(" .. v.payload .. "[" .. v.idx .. "])")
+	table.insert(lines, "  local " .. v.encodedIdx .. "=((" .. v.idx .. "-1)*" .. stride .. ")%#" .. v.payload .. "+1")
+	table.insert(lines, "  local " .. v.shift .. "=(" .. offset .. "+((" .. v.idx .. "-1)*" .. step .. ")%256)%256")
+	table.insert(lines, "  " .. v.decoded .. "[" .. v.idx .. "]=" .. v.char .. "(((" .. v.byte .. "(" .. v.payload .. "," .. v.encodedIdx .. ")-" .. v.shift .. ")%256*" .. inverse .. ")%256)")
 	table.insert(lines, "end")
-
-	-- loadstring / load and execute
+	table.insert(lines, "local " .. v.result .. "=table.concat(" .. v.decoded .. ")")
 	table.insert(lines, "local " .. v.loadstr .. "=loadstring or load")
 	table.insert(lines, "if " .. v.loadstr .. " then")
 	table.insert(lines, "  local " .. v.fn .. "=" .. v.loadstr .. "(" .. v.result .. ")")
@@ -180,8 +118,7 @@ local function buildDecoder(escapedPayload, keyBytes, layers)
 	table.insert(lines, "    " .. v.fn .. "()")
 	table.insert(lines, "  end")
 	table.insert(lines, "end")
-
-	return concat(lines, "\n")
+	return table.concat(lines, "\n")
 end
 
 function TamperObfuscator:apply(ast)
@@ -267,20 +204,19 @@ function TamperObfuscator:apply(ast)
 
 	local combinedSource = table.concat(blockSources, "\n")
 
-	-- Generate a random XOR key.
-	local keyLen = math.random(16, 48)
-	local keyBytes = {}
-	for i = 1, keyLen do
-		keyBytes[i] = math.random(0, 255)
-	end
-
-	-- XOR-encrypt the source bytes.
+	-- Encode bytes with a position-dependent affine map and a per-build
+	-- permutation. Odd multipliers are invertible modulo 256.
 	local sourceBytes = stringToBytes(combinedSource)
-	local encryptedBytes = xorBytesSafe(sourceBytes, keyBytes)
-	local escapedPayload = bytesToEscapedString(encryptedBytes)
+	local multiplier = math.random(1, 127) * 2 + 1
+	local inverse = inverseModulo256(multiplier)
+	local offset = math.random(0, 255)
+	local step = math.random(1, 255)
+	local stride = chooseStride(#sourceBytes)
+	local encodedBytes = encodeBytes(sourceBytes, multiplier, offset, step, stride)
+	local escapedPayload = bytesToEscapedString(encodedBytes)
 
-	-- Build the polymorphic decoder source.
-	local decoderSource = buildDecoder(escapedPayload, keyBytes, self.XORLayers)
+	-- Build the polymorphic inverse decoder source.
+	local decoderSource = buildDecoder(escapedPayload, inverse, offset, step, stride)
 
 	-- Use an IIFE rather than `do ... end`: the decoder has +0 literals and
 	-- must not share the main chunk's constant table with a user -0.0 literal.

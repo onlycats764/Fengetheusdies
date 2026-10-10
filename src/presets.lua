@@ -23,12 +23,10 @@
 --     before string encryption, some omit the standard optimiser trio
 --     entirely.
 --
---  2. INTRODUCING TAMPEROBFUSCATOR after every AntiTamper / AntiSandbox
---     pass.  This step XOR-encrypts the generated integrity-check code
---     and replaces it with a polymorphic self-decoding loader.  A static
---     dumper sees only an opaque byte string and a tiny XOR loop — it
---     cannot pattern-match the anti-tamper structure, recognise the
---     sanity-loop, or extract the builtin snapshot list.
+--  2. INTRODUCING TAMPEROBFUSCATOR after selected integrity-check passes.
+--     It wraps checks in a loader using a position-dependent byte transform,
+--     shuffled byte order, and randomized identifiers. This changes the
+--     recognizable XOR decoder shape without claiming cryptographic secrecy.
 --
 --  3. USING NON-STANDARD STEPS that Prometheus presets never enabled:
 --     ControlFlowMutation, ConditionCamouflage, RewriteNamecalls,
@@ -39,13 +37,9 @@
 --     Nonlinear, AliasCount) so the generated VM dispatcher looks
 --     different in each preset.
 --
--- The result: each preset produces structurally unique output that does
--- not match any known Prometheus signature, while remaining functionally
--- correct (verified across all test cases in Lumora).
---
--- All configurations were verified to produce output that executes
--- identically to the original (same printed output AND return values)
--- across every test case and multiple seeds, in Lumora (Luau runtime).
+-- These transforms add structural variation; they are obfuscation, not a
+-- guarantee against analysis. Use the Lumora harness to verify runtime
+-- equivalence after changing a pipeline or decoder.
 
 local presets = {
 	-- ═══════════════════════════════════════════════════════════════════════
@@ -99,7 +93,7 @@ local presets = {
 			},
 			{ Name = "NumbersToExpressions", Settings = { MixedArithmetic = true } },
 			{ Name = "AntiTamper", Settings = { UseDebug = false } },
-			{ Name = "TamperObfuscator", Settings = { XORLayers = 1 } },
+			{ Name = "TamperObfuscator", Settings = {} },
 			{ Name = "JunkCode", Settings = { Chance = 0.15, MinJunk = 2, MaxJunk = 4, MaxDepth = 3 } },
 			{ Name = "WrapInFunction", Settings = {} },
 		},
@@ -152,8 +146,8 @@ local presets = {
 	-- ═══════════════════════════════════════════════════════════════════════
 	-- Stealth — VM pipeline with disguised integrity checks
 	-- ───────────────────────────────────────────────────────────────────────
--- Stealth-focused. Uses Stealth-mode AntiTamper (which already uses
--- _G[string.char(...)] lookups and non-literal failure loops) compiled
+-- Stealth-focused. Uses Stealth-mode AntiTamper (which uses encoded
+-- getfenv()[string.char(...)] lookups and non-literal failure loops) compiled
 -- directly into the VM before the Vmify pass.
 	-- ControlFlowMutation runs BEFORE Vmify (unusual — Prometheus puts
 	-- control-flow steps after the VM), creating a different AST shape
@@ -275,7 +269,7 @@ local presets = {
 	-- obfuscation: double ControlFlowMutation (two independent passes
 	-- with different layer counts), ProxifyLocals, double ConstantArray
 	-- (full + strings-only), RewriteNamecalls with bracket indexing,
-	-- OpaquePredicate, EncryptStrings, SplitStrings, and XOR-obfuscated
+	-- OpaquePredicate, EncryptStrings, SplitStrings, and loader-obfuscated
 	-- anti-tamper + anti-sandbox.  No two steps share the same position
 	-- as in any Prometheus preset.
 	--
@@ -324,7 +318,7 @@ local presets = {
 				},
 			},
 			{ Name = "AntiTamper", Settings = { UseDebug = false } },
-			{ Name = "TamperObfuscator", Settings = { XORLayers = 2 } },
+			{ Name = "TamperObfuscator", Settings = {} },
 			{ Name = "ConstantArray", Settings = { Threshold = 1, StringsOnly = false, Shuffle = true, Rotate = true, LocalWrapperThreshold = 0 } },
 			{
 				Name = "ConstantArray",
@@ -369,7 +363,7 @@ local presets = {
 	--   • ProxifyLocals runs BEFORE AntiTamper (Strong runs it after).
 	--   • AntiSandbox runs BEFORE Vmify (Strong runs it after).
 	--   • ControlFlowMutation is applied (Strong does not use it).
-	--   • AntiTamper + AntiSandbox are both XOR-obfuscated.
+	--   • AntiTamper + AntiSandbox are both loader-obfuscated.
 	--   • RewriteNamecalls with bracket indexing is added.
 	--   • ConditionCamouflage is added.
 	--
@@ -456,7 +450,7 @@ local presets = {
 	-- LargeScripts — kept as a stable fallback for very large scripts
 	-- whose generated Strong output would exceed Lua's per-function
 	-- local-variable or nesting limits.  Retains string encryption,
-	-- anti-tamper (XOR-obfuscated), a shuffled/rotated constant array,
+	-- anti-tamper (loader-obfuscated), a shuffled/rotated constant array,
 	-- numeric expression mutation, and function wrapping while avoiding
 	-- the VM, local proxification, split-string helpers, and second
 	-- ConstantArray pass.
@@ -476,7 +470,7 @@ local presets = {
 			{ Name = "OpaquePredicate", Settings = { Threshold = 0.5 } },
 			{ Name = "EncryptStrings", Settings = {} },
 			{ Name = "AntiTamper", Settings = { UseDebug = false } },
-			{ Name = "TamperObfuscator", Settings = { XORLayers = 1 } },
+			{ Name = "TamperObfuscator", Settings = {} },
 			{
 				Name = "ConstantArray",
 				Settings = {

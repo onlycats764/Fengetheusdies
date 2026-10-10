@@ -85,7 +85,8 @@ local function globalLookup(name)
 	for i = 1, #name do
 		bytes[i] = tostring(string.byte(name, i))
 	end
-	return "_G[string.char(" .. table.concat(bytes, ",") .. ")]"
+	-- Roblox's _G is shared state, not the environment containing built-in globals.
+	return "getfenv()[string.char(" .. table.concat(bytes, ",") .. ")]"
 end
 
 local function runtimeGlobal(name, stealth)

@@ -137,10 +137,13 @@ The focused optimizer and AntiTamper regressions can be run directly with Lua:
 lua test/optimizer-passes.lua
 lua test/optimizer-equivalence.lua
 lua test/antitamper-refs.lua
+lua test/tamper-obfuscator.lua
 ```
 
 The AntiTamper regression compiles generated output for syntax and checks the
 reference comparisons without executing the tamper failure path.
+The TamperObfuscator regression verifies its affine byte codec against a
+harmless fixture and confirms the legacy XOR decoder loop is absent.
 
 ## Browser web client
 
