@@ -40,6 +40,7 @@ function Compiler:new(options)
 		DispatchAliasCount = options.DispatchAliasCount or 1;
 		DispatchMaskMagnitude = options.DispatchMaskMagnitude or 4096;
 		DispatchNoiseMagnitude = options.DispatchNoiseMagnitude or 7;
+		InstructionVM = options.InstructionVM == true;
 		DispatchMultiplier = 1;
 		DispatchOffset = 0;
 		DispatchNoise = {};
@@ -191,6 +192,8 @@ function Compiler:compile(ast)
     self.registerVars = {};
 	self.usedBlockIds = {};
 	self.ir = nil;
+	self.instructionProgramsAst = nil;
+	self.usedInstructionOpcodes = {};
 	self.DispatchAliasCount = math.max(1, math.min(4, math.floor(self.DispatchAliasCount or 1)));
 
 	self.upvalVars = {};
@@ -260,6 +263,9 @@ function Compiler:compile(ast)
     self.scope = Scope:new(psc);
     self.envVar = self.scope:addVariable();
     self.containerFuncVar = self.scope:addVariable();
+	if self.InstructionVM then
+		self.instructionProgramsVar = self.scope:addVariable();
+	end
     self.unpackVar = self.scope:addVariable();
     -- FIX#3: P (pack multi-values with true count) and X (hole-safe expand)
     self.packVar = self.scope:addVariable();
@@ -275,6 +281,9 @@ function Compiler:compile(ast)
     self.whileScope = Scope:new(self.containerFuncScope);
 
     self.posVar = self.containerFuncScope:addVariable();
+	if self.InstructionVM then
+		self.registerFrameVar = self.containerFuncScope:addVariable();
+	end
     self.argsVar = self.containerFuncScope:addVariable();
     self.currentUpvaluesVar = self.containerFuncScope:addVariable();
     self.detectGcCollectVar = self.containerFuncScope:addVariable();
@@ -459,6 +468,12 @@ function Compiler:compile(ast)
         table.insert(functionNodeAssignments, entry);
         table.insert(tbl, Ast.VariableExpression(entry.var.scope, entry.var.id));
     end
+	if self.InstructionVM then
+		table.insert(functionNodeAssignments, {
+			var = Ast.AssignmentVariable(self.scope, self.instructionProgramsVar),
+			val = self.instructionProgramsAst,
+		});
+	end
 
     util.shuffle(functionNodeAssignments);
     local assignmentStatLhs, assignmentStatRhs = {}, {};

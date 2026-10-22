@@ -114,6 +114,22 @@ assert.match(elements.get("action-help").textContent, /Download your file below/
 const originalAdvanced = await engine.doString('return require("fengetheus").Presets.Advanced');
 assert.deepEqual(cfg.Steps, originalAdvanced.Steps, "untouched controls changed preset passes");
 assert.equal(cfg.Steps.find((step) => step.Name === "Vmify").Settings.DispatchNonlinear, true);
+await choosePreset("SafeVM");
+assert.equal(elements.get("vm-instruction").checked, true, "SafeVM instruction-stream setting did not hydrate");
+assert.equal(elements.get("vm-instruction").disabled, false, "SafeVM VM setting should be editable");
+await upload("local value = 40; return value + 2", "safevm.lua");
+await run();
+assert.equal(elements.get("error-box").textContent, "", "SafeVM browser build failed");
+cfg = engine.global.get("__test_cfg");
+const safeVmIndex = cfg.Steps.findIndex((step) => step.Name === "Vmify");
+const safeAntiTamperIndex = cfg.Steps.findIndex((step) => step.Name === "AntiTamper");
+assert.ok(safeVmIndex >= 0 && safeAntiTamperIndex >= 0 && safeAntiTamperIndex < safeVmIndex,
+  "SafeVM should compile AntiTamper checks inside the instruction VM");
+assert.equal(cfg.Steps.find((step) => step.Name === "Vmify").Settings.InstructionVM, true);
+assert.ok(!cfg.Steps.some((step) => step.Name === "TamperObfuscator"), "SafeVM enabled the anti-tamper loader");
+const safeVmOutput = await [...downloads.values()].at(-1).text();
+assert.equal(await engine.doString(safeVmOutput), 42, "SafeVM browser output changed the result");
+await choosePreset("Advanced");
 elements.get("junk-chance").value = "0.25"; await elements.get("junk-chance").emit("input");
 assert.ok(elements.get("result-card").classList.contains("is-hidden"), "edited settings retained a stale download");
 assert.ok(revoked.length);
@@ -187,4 +203,4 @@ assert.equal(elements.get("error-box").textContent, "", "restored page could not
 windowListeners.pagehide();
 engines.at(-1).global.close();
 recoveredEngine.global.close();
-console.log("Web client/Wasmoon checks passed: presets, untouched defaults, edited controls, fixed seed, dialect detection, diagnostics, download, cleanup and recovery.");
+console.log("Web client/Wasmoon checks passed: presets, SafeVM instruction stream, AntiTamper, untouched defaults, edited controls, fixed seed, dialect detection, diagnostics, download, cleanup and recovery.");

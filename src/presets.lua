@@ -610,6 +610,37 @@ presets.Advanced = {
 	Steps = advancedSteps,
 }
 
+-- SafeVM routes the payload and portable AntiTamper checks through the
+-- instruction stream. Nonessential flow noise stays off to keep the preset
+-- practical for ordinary Lua 5.1 and Luau scripts.
+presets.SafeVM = {
+	LuaVersion = "Lua51",
+	VarNamePrefix = "",
+	NameGenerator = "MangledShuffled",
+	PrettyPrint = false,
+	Seed = 0,
+	Steps = {
+		{ Name = "ConstantFolding", Settings = {} },
+		{ Name = "DeadCodeElimination", Settings = {} },
+		{ Name = "RedundantOperationElimination", Settings = {} },
+		{ Name = "LocalCaching", Settings = {} },
+		{ Name = "AntiTamper", Settings = { UseDebug = false } },
+		{ Name = "Vmify", Settings = { InstructionVM = true } },
+		{ Name = "ExtractGlobals", Settings = {} },
+		{ Name = "EncryptStrings", Settings = {} },
+		{
+			Name = "ConstantArray",
+			Settings = {
+				Threshold = 1,
+				StringsOnly = false,
+				Shuffle = true,
+				Rotate = true,
+				LocalWrapperThreshold = 0,
+			},
+		},
+	},
+}
+
 -- Keep existing configurations and integrations using the same pipelines.
 presets.Phantom = presets.Virtualized
 presets.Wraith = presets.Stealth

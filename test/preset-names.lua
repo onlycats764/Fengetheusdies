@@ -26,4 +26,16 @@ for _, step in ipairs(presets.VM.Steps) do
 end
 assert(hasVmify, "renaming the VM preset must preserve the Vmify transformation")
 
+local safeVmify, safeAntiTamper, safeLoader
+for index, step in ipairs(presets.SafeVM.Steps) do
+	if step.Name == "Vmify" then safeVmify = index end
+	if step.Name == "AntiTamper" then safeAntiTamper = index end
+	if step.Name == "TamperObfuscator" then safeLoader = index end
+end
+assert(safeVmify and presets.SafeVM.Steps[safeVmify].Settings.InstructionVM == true,
+	"SafeVM must use the instruction-stream VM")
+assert(safeAntiTamper and not safeLoader, "SafeVM must keep AntiTamper and omit the loader")
+assert(safeAntiTamper < safeVmify,
+	"SafeVM must compile AntiTamper checks inside the instruction-stream VM")
+
 print("Preset names and compatibility aliases passed.")

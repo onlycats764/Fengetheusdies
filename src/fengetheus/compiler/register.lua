@@ -108,6 +108,16 @@ return function(Compiler)
             return self:getReturn(scope);
         end
 
+		if self.InstructionVM and type(id) == "number" then
+			scope:addReferenceToHigherScope(self.containerFuncScope, self.registerFrameVar);
+			local expression = Ast.IndexExpression(
+				Ast.VariableExpression(self.containerFuncScope, self.registerFrameVar),
+				Ast.NumberExpression(id)
+			);
+			expression.__instructionRegister = id;
+			return expression;
+		end
+
         if id < MAX_REGS then
             local vid = self:getRegisterVarId(id);
             scope:addReferenceToHigherScope(self.containerFuncScope, vid);
@@ -134,6 +144,16 @@ return function(Compiler)
         if id == self.RETURN_REGISTER then
             return self:returnAssignment(scope);
         end
+
+		if self.InstructionVM and type(id) == "number" then
+			scope:addReferenceToHigherScope(self.containerFuncScope, self.registerFrameVar);
+			local assignment = Ast.AssignmentIndexing(
+				Ast.VariableExpression(self.containerFuncScope, self.registerFrameVar),
+				Ast.NumberExpression(id)
+			);
+			assignment.__instructionRegister = id;
+			return assignment;
+		end
 
         if id < MAX_REGS then
             local vid = self:getRegisterVarId(id);

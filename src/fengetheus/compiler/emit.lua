@@ -148,8 +148,228 @@ return function(Compiler)
         return merged;
     end
 
+	local function instructionOperands(stat)
+		local seen, operands = {}, {};
+		for _, registers in ipairs({ stat.reads or {}, stat.writes or {} }) do
+			for registerId in pairs(registers) do
+				if type(registerId) == "number" and not seen[registerId] then
+					seen[registerId] = true;
+					operands[#operands + 1] = registerId;
+				end
+			end
+		end
+		table.sort(operands);
+		return operands;
+	end
+
+	local function reserveAncestorNames(source, target)
+		local ancestor = source;
+		while ancestor and not ancestor.isGlobal do
+			for id = 1, #ancestor.variables do
+				target:addReferenceToHigherScope(ancestor, id, 1, true);
+			end
+			ancestor = ancestor.parentScope;
+		end
+	end
+
+	local function copyVisibleReferences(source, target)
+		-- A decoded action runs under target's lexical block, even though its
+		-- existing AST nodes still name variables from source and its ancestors.
+		-- Reserve all those names so the opcode/index locals cannot shadow them.
+		reserveAncestorNames(source, target);
+		for id, count in pairs(source.referenceCounts or {}) do
+			if count > 0 then target:addReferenceToHigherScope(source, id, count) end
+		end
+		for scope, ids in pairs(source.variablesFromHigherScopes or {}) do
+			for id, count in pairs(ids) do
+				if count > 0 then target:addReferenceToHigherScope(scope, id, count) end
+			end
+		end
+	end
+
+	local function nextInstructionOpcode(compiler)
+		local opcode;
+		repeat
+			opcode = math.random(1, 2^24);
+		until not compiler.usedInstructionOpcodes[opcode];
+		compiler.usedInstructionOpcodes[opcode] = true;
+		return opcode;
+	end
+
+	local function rewriteInstructionOperands(statement, operandPositions, loopScope, instructionVar)
+		local seen = {};
+		local function visit(node)
+			if type(node) ~= "table" or seen[node] then return end
+			seen[node] = true;
+
+			local registerId = node.__instructionRegister;
+			if registerId ~= nil then
+				local operandIndex = operandPositions[registerId];
+				if not operandIndex then
+					error("Fengetheus instruction VM: register " .. tostring(registerId) .. " is missing from its operand list", 0);
+				end
+				if node.kind ~= AstKind.IndexExpression and node.kind ~= AstKind.AssignmentIndexing then
+					error("Fengetheus instruction VM: unsupported register operand node " .. tostring(node.kind), 0);
+				end
+				node.index = Ast.IndexExpression(
+					Ast.VariableExpression(loopScope, instructionVar),
+					Ast.NumberExpression(operandIndex + 1)
+				);
+				node.__instructionRegister = nil;
+			end
+
+			for key, value in pairs(node) do
+				if key ~= "scope" and key ~= "globalScope" and key ~= "parentScope" and
+					key ~= "variables" and key ~= "variablesLookup" and
+					key ~= "referenceCounts" and key ~= "variablesFromHigherScopes" and
+					key ~= "children" and key ~= "loop" and key ~= "__instructionRegister" then
+					visit(value);
+				end
+			end
+		end
+		visit(statement);
+	end
+
+	local function buildInstructionDispatch(nodes, left, right, parentScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar)
+		local dispatchScope = Scope:new(parentScope);
+		dispatchScope:addReferenceToHigherScope(loopScope, opcodeVar);
+
+		if left == right then
+			local instruction = nodes[left];
+			local bodyScope = Scope:new(dispatchScope);
+			bodyScope:addReferenceToHigherScope(loopScope, instructionVar);
+			bodyScope:addReferenceToHigherScope(frameScope, frameVar);
+			rewriteInstructionOperands(instruction.statement, instruction.operandPositions, loopScope, instructionVar);
+			local skippedScope = Scope:new(dispatchScope);
+			return Ast.Block({
+				Ast.IfStatement(
+					Ast.EqualsExpression(
+						Ast.VariableExpression(loopScope, opcodeVar),
+						Ast.NumberExpression(instruction.opcode)
+					),
+					Ast.Block({ instruction.statement }, bodyScope),
+					{},
+					Ast.Block({}, skippedScope)
+				)
+			}, dispatchScope);
+		end
+
+		local middle = math.floor((left + right) / 2);
+		local leftOpcode = nodes[middle].opcode;
+		local rightOpcode = nodes[middle + 1].opcode;
+		local bound = math.floor((leftOpcode + rightOpcode) / 2);
+		if bound <= leftOpcode then bound = leftOpcode + 1 end
+
+		local leftBlock = buildInstructionDispatch(nodes, left, middle, dispatchScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar);
+		local rightBlock = buildInstructionDispatch(nodes, middle + 1, right, dispatchScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar);
+		return Ast.Block({
+			Ast.IfStatement(
+				Ast.LessThanExpression(
+					Ast.VariableExpression(loopScope, opcodeVar),
+					Ast.NumberExpression(bound)
+				),
+				leftBlock,
+				{},
+				rightBlock
+			)
+		}, dispatchScope);
+	end
+
+	local function compileInstructionBlock(compiler, block, stats, programRows)
+		local instructions, rows = {}, {};
+		for _, stat in ipairs(stats) do
+			local operands = instructionOperands(stat);
+			local positions = {};
+			local opcode = nextInstructionOpcode(compiler);
+			local row = { Ast.TableEntry(Ast.NumberExpression(opcode)) };
+			for index, registerId in ipairs(operands) do
+				positions[registerId] = index;
+				row[#row + 1] = Ast.TableEntry(Ast.NumberExpression(registerId));
+			end
+			instructions[#instructions + 1] = {
+				opcode = opcode,
+				operandPositions = positions,
+				statement = stat.statement,
+			};
+			rows[#rows + 1] = Ast.TableEntry(Ast.TableConstructorExpression(row));
+		end
+
+		-- Store the numeric program once with the wrapper. Each instruction
+		-- carries its virtual-register operands; dispatch resolves them against
+		-- the current invocation's frame table.
+		programRows[#programRows + 1] = Ast.KeyedTableEntry(
+			Ast.NumberExpression(block.id),
+			Ast.TableConstructorExpression(rows)
+		);
+
+		local blockScope = block.scope;
+		-- The per-block program and instruction pointer are locals in blockScope.
+		-- Reserve outer VM locals first (especially the main position variable),
+		-- otherwise an instruction pointer can shadow the block-dispatch state.
+		reserveAncestorNames(blockScope.parentScope, blockScope);
+		local programVar = blockScope:addVariable();
+		local instructionIndexVar = blockScope:addVariable();
+		local loopScope = Scope:new(blockScope);
+		copyVisibleReferences(blockScope, loopScope);
+		local instructionVar = loopScope:addVariable();
+		local opcodeVar = loopScope:addVariable();
+		blockScope:addReferenceToHigherScope(compiler.scope, compiler.instructionProgramsVar);
+		blockScope:addReferenceToHigherScope(compiler.containerFuncScope, compiler.registerFrameVar);
+		loopScope:addReferenceToHigherScope(blockScope, programVar);
+		loopScope:addReferenceToHigherScope(blockScope, instructionIndexVar);
+
+		local dispatchNodes = {};
+		for index, instruction in ipairs(instructions) do dispatchNodes[index] = instruction end
+		table.sort(dispatchNodes, function(left, right) return left.opcode < right.opcode end);
+		local loopStatements = {};
+		if #dispatchNodes > 0 then
+			local dispatch = buildInstructionDispatch(
+				dispatchNodes, 1, #dispatchNodes, loopScope, loopScope,
+				opcodeVar, instructionVar, compiler.containerFuncScope, compiler.registerFrameVar
+			);
+			loopStatements = {
+				Ast.LocalVariableDeclaration(loopScope, { instructionVar }, {
+					Ast.IndexExpression(
+						Ast.VariableExpression(blockScope, programVar),
+					Ast.VariableExpression(blockScope, instructionIndexVar)
+					)
+				}),
+				Ast.LocalVariableDeclaration(loopScope, { opcodeVar }, {
+					Ast.IndexExpression(Ast.VariableExpression(loopScope, instructionVar), Ast.NumberExpression(1))
+				}),
+				Ast.DoStatement(dispatch),
+				Ast.AssignmentStatement(
+				{ Ast.AssignmentVariable(blockScope, instructionIndexVar) },
+				{ Ast.AddExpression(Ast.VariableExpression(blockScope, instructionIndexVar), Ast.NumberExpression(1)) }
+				),
+			};
+		end
+		local loopBody = Ast.Block(loopStatements, loopScope);
+		local loop = Ast.WhileStatement(loopBody,
+			Ast.LessThanOrEqualsExpression(
+				Ast.VariableExpression(blockScope, instructionIndexVar),
+				Ast.LenExpression(Ast.VariableExpression(blockScope, programVar))
+			)
+		);
+
+		return {
+			id = block.id,
+			block = Ast.Block({
+				Ast.LocalVariableDeclaration(blockScope, { programVar }, {
+					Ast.IndexExpression(
+						Ast.VariableExpression(compiler.scope, compiler.instructionProgramsVar),
+						Ast.NumberExpression(block.id)
+					)
+				}),
+				Ast.LocalVariableDeclaration(blockScope, { instructionIndexVar }, { Ast.NumberExpression(1) }),
+				loop,
+			}, blockScope),
+		};
+	end
+
     function Compiler:emitContainerFuncBody()
         local blocks = {};
+		local instructionPrograms = {};
 
         util.shuffle(self.blocks);
 
@@ -212,14 +432,21 @@ return function(Compiler)
                 mergedBlockStats = mergeAdjacentParallelAssignments(mergedBlockStats);
             end
 
-            blockstats = {};
-            for _, stat in ipairs(mergedBlockStats) do
-                table.insert(blockstats, stat.statement);
-            end
-
-            local block = { id = id, index = i, block = Ast.Block(blockstats, block.scope) }
-            table.insert(blocks, block);
+			local emittedBlock;
+			if self.InstructionVM then
+				emittedBlock = compileInstructionBlock(self, block, mergedBlockStats, instructionPrograms);
+			else
+				blockstats = {};
+				for _, stat in ipairs(mergedBlockStats) do
+					table.insert(blockstats, stat.statement);
+				end
+				emittedBlock = { id = id, index = i, block = Ast.Block(blockstats, block.scope) };
+			end
+			table.insert(blocks, emittedBlock);
         end
+		if self.InstructionVM then
+			self.instructionProgramsAst = Ast.TableConstructorExpression(instructionPrograms);
+		end
 
         table.sort(blocks, function(a, b) return a.id < b.id end);
 
@@ -390,11 +617,14 @@ return function(Compiler)
 
         local stats = {}
 
-        if self.maxUsedRegister >= MAX_REGS then
+        if not self.InstructionVM and self.maxUsedRegister >= MAX_REGS then
             table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, {self.registerVars[MAX_REGS]}, {Ast.TableConstructorExpression({})}));
         end
 
         table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, util.shuffle(declarations), {}));
+		if self.InstructionVM then
+			table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, { self.registerFrameVar }, { Ast.TableConstructorExpression({}) }));
+		end
 
         table.insert(stats, Ast.WhileStatement(whileBody, Ast.VariableExpression(self.containerFuncScope, self.posVar)));
 

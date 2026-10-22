@@ -19,7 +19,8 @@
     Strong: "A virtual machine with layered constant, control-flow and integrity transforms.",
     Advanced: "A nonlinear virtual machine with dispatch aliases and additional transformation passes.",
     LargeScripts: "String encryption and integrity checks for large scripts, without a virtual machine.",
-    VM: "A focused virtual machine profile for testing."
+    VM: "A focused virtual machine profile for testing.",
+    SafeVM: "Instruction-stream VM with encrypted typed constants and integrity checks."
   };
   const steps = [
     ["ConstantFolding", "Constant folding", true], ["DeadCodeElimination", "Dead-code removal", true],
@@ -40,6 +41,7 @@
     "ConstantArray.StringsOnly": "Strings only", "ControlFlowMutation.Threshold": "Mutation threshold",
     "ControlFlowMutation.Layers": "Control-flow layers", "JunkCode.Chance": "Junk insertion",
     "OpaquePredicate.Threshold": "Predicate threshold",
+    "Vmify.InstructionVM": "Instruction-stream VM",
     "Vmify.DispatchAliasCount": "Dispatch aliases", "Vmify.DispatchMask": "Masked dispatch",
     "Vmify.DispatchAffine": "Affine dispatch", "Vmify.DispatchBounce": "Bounce dispatch",
     "Vmify.DispatchNonlinear": "Nonlinear dispatch"
@@ -53,6 +55,7 @@
     ["constant-threshold", "ConstantArray", "Threshold", 1, 0, 1],
     ["junk-chance", "JunkCode", "Chance", 0.15, 0, 1],
     ["vm-alias-count", "Vmify", "DispatchAliasCount", 1, 1, 4, true],
+    ["vm-instruction", "Vmify", "InstructionVM", false],
     ["vm-mask", "Vmify", "DispatchMask", false], ["vm-affine", "Vmify", "DispatchAffine", false],
     ["vm-bounce", "Vmify", "DispatchBounce", false], ["vm-nonlinear", "Vmify", "DispatchNonlinear", false],
     ["strings-only", "ConstantArray", "StringsOnly", false], ["tamper-stealth", "AntiTamper", "Stealth", false]

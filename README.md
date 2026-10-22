@@ -10,7 +10,7 @@ Fengetheus is a local command-line Lua obfuscator built around the Prometheus co
 
 - Local file-to-file obfuscation with no remote service required.
 
-- Presets for different transformation levels: `Minify`, `Balanced`, `Virtualized`, `Stealth`, `Encrypted`, `Hardened`, `Strong`, `Advanced`, `LargeScripts`, and `VM`.
+- Presets for different transformation levels: `Minify`, `Balanced`, `Virtualized`, `Stealth`, `Encrypted`, `Hardened`, `Strong`, `Advanced`, `LargeScripts`, `VM`, and `SafeVM`.
 
 - Automatic Lua 5.1 and Luau syntax detection, with optional CLI target overrides.
 
@@ -70,6 +70,7 @@ When `--out` is omitted, Fengetheus writes the result beside the input file usin
 | `Advanced` | Use Strong with the second-generation VM dispatch settings. |
 | `LargeScripts` | Use a strong profile for large scripts while avoiding the heaviest scope and nesting transforms. |
 | `VM` | Isolated VM test preset. |
+| `SafeVM` | Instruction-stream VM with typed constant storage, encrypted strings, and portable AntiTamper checks compiled inside the VM. |
 
 Previous preset names remain supported as aliases for existing scripts and configurations.
 
@@ -131,6 +132,14 @@ LUA_BIN=lua5.3 test/cli-smoke.sh
 ```
 
 Additional Lua cases and invariant or trace checks are available under [`test/`](./test).
+The instruction-VM semantic checks cover independent closures, captured upvalues,
+varargs, multiple returns, and embedded nils. Run them with Lua 5.1:
+
+```
+lua test/instruction-vm-equivalence.lua
+lua test/safevm-corpus.lua
+```
+
 The focused optimizer and AntiTamper regressions can be run directly with Lua:
 
 ```

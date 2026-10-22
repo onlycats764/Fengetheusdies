@@ -35,6 +35,10 @@ Vmify.SettingsDescriptor = {
 		min = 1,
 		max = 4,
 	},
+	InstructionVM = {
+		type = "boolean",
+		default = false,
+	},
     DispatchMaskMagnitude = {
         type = "number",
         default = 4096,
@@ -57,6 +61,7 @@ function Vmify:init()
 	self.DispatchBounce = self.DispatchBounce == true
 	self.DispatchNonlinear = self.DispatchNonlinear == true
 	self.DispatchAliasCount = self.DispatchAliasCount or 1
+	self.InstructionVM = self.InstructionVM == true
 	self.DispatchMaskMagnitude = self.DispatchMaskMagnitude or 4096
 	self.DispatchNoiseMagnitude = self.DispatchNoiseMagnitude or 7
 end
@@ -69,6 +74,7 @@ function Vmify:apply(ast)
 		DispatchBounce = self.DispatchBounce,
         DispatchNonlinear = self.DispatchNonlinear,
 		DispatchAliasCount = self.DispatchAliasCount,
+        InstructionVM = self.InstructionVM,
         DispatchMaskMagnitude = self.DispatchMaskMagnitude,
 		DispatchNoiseMagnitude = self.DispatchNoiseMagnitude,
     });
