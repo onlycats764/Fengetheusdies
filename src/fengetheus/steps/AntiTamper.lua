@@ -20,11 +20,9 @@
 --   behaviour. The false-positives that made the old version unusable came
 --   from the removed hardcoded-value assertions, not from the halt itself.)
 --
---   This rewrite keeps the *effective* anti-tamper signals — builtin snapshot
---   + final equality check (detects post-snapshot global replacement), C-closure
---   verification (detects Lua-closure hooks of native builtins), and library
---   member existence checks (detects deleted/swapped members) — but makes every
---   check tolerant of runtime differences:
+--   This rewrite keeps the effective anti-tamper signals — builtin snapshots
+--   with final identity checks, structural behavior probes, and library-member
+--   checks — while making every check tolerant of runtime differences:
 --     * `detected()` spins a `while true do end` hard halt instead of raising
 --       a catchable error, so a tampered script (and any dump/hook bot
 --       driving it) is wedged forever. The loop is unreachable on a
@@ -34,22 +32,12 @@
 --       check (not just a falsy return) is caught and treated as "not tampered"
 --       rather than crashing or hanging the whole payload.
 --     * Hardcoded-value assertions (Random seed, exact error text, etc.) are
---       removed. The remaining assertions are all *structural* (does this
---       builtin still equal the one we snapshotted? is it still a C closure?
---       do the expected library members still exist?) — these are the signals
---       that actually catch hooking/tampering without false-positiving on
---       engine version drift.
---     * checkCClosure is now a NO-OP observer. Real Roblox executors (UNC-
---       compatible ones) expose some builtins (e.g. type, loadstring) by
---       injecting them from a Roblox script, so those are GENUINE Lua closures
---       (iscclosure=false, islclosure=true, what="Lua", source=Roblox path).
---       There is no way to tell that apart from a malicious Lua-closure hook
---       using only iscclosure/source/what, so flagging on "is a Lua closure"
---       false-positived on every such executor. The real replacement-detection
---       signal is the final identity check (refs.assert == assert, ...), which
---       compares function identity and catches any swap regardless of closure
---       type, so checkCClosure's flagging was redundant AND a false-positive
---       factory. It now only observes, never flags.
+--       removed. The remaining checks compare captured references and exercise
+--       structural behavior without depending on a particular engine version.
+--     * Closure type is not used as a hook signal: executors may legitimately
+--       expose builtins as Lua closures, so closure type cannot distinguish
+--       those APIs from replacements. Identity and behavior checks provide the
+--       supported signals instead.
 --   The original sanity-check loop is retained (it is self-consistent and only
 --   depends on math.random, which the obfuscator patches), and the anti-beautify
 --   sethook block is retained when UseDebug is enabled.
@@ -391,35 +379,6 @@ function AntiTamper:apply(ast, pipeline)
         end
     end
 
-    -- C-closure observation. The original intent was to detect a native builtin
-    -- that had been replaced with a Lua closure (the classic hooking vector).
-    -- In practice this signal is NOT usable on real Roblox executors:
-    --   * Many UNC-compatible executors expose some builtins (e.g. `type`,
-    --     `loadstring`) by injecting them from a Roblox script, so those
-    --     builtins are GENUINE Lua closures: iscclosure(fn)==false,
-    --     islclosure(fn)==true, debug.info(fn,"s") is a Roblox script path
-    --     (e.g. "CoreGui.RobloxGui.Modules.Common.Locales.en-us"), and
-    --     debug.getinfo(fn).what == "Lua". That is the executor's normal
-    --     behaviour, NOT tampering.
-    --   * There is no way to distinguish "builtin legitimately injected as a
-    --     Lua closure by the executor" from "builtin replaced with a Lua
-    --     closure by a hook" using only iscclosure / source / what -- both
-    --     present identically. So flagging on "is a Lua closure" false-
-    --     positives on every UNC executor that injects builtins this way.
-    -- The actual replacement-detection signal is the FINAL IDENTITY CHECK
-    -- below (refs.assert == assert, ...), which compares function identity
-    -- and catches any post-snapshot swap regardless of closure type. That
-    -- check is fully engine-version-stable and does not false-positive.
-    -- Therefore checkCClosure is now a NO-OP observer: it never sets
-    -- valid=false. It is kept (rather than deleted) so the snapshot list of
-    -- builtins above stays self-documenting and the structure is unchanged.
-    local function checkCClosure(fn)
-        -- Intentionally does not flag. See comment above.
-        safeCheck(function()
-            return true;
-        end);
-    end
-
     -- varargs + select counting — structural, self-consistent.
     safeCheck(function()
         local function f1(...)
@@ -503,9 +462,7 @@ function AntiTamper:apply(ast, pipeline)
     end);
 
     -- Library integrity: verify expected members still exist and are
-    -- functions. A hook that deletes or swaps a member is caught here; a
-    -- hook that *replaces* a member with a Lua closure is caught by
-    -- checkCClosure above. This is structural and engine-version-stable.
+    -- functions. The snapshot equality check below detects post-snapshot replacements.
     local function checkLibraryMembers(source, keys)
         safeCheck(function()
             for _, keyName in ipairs(keys) do
@@ -547,26 +504,6 @@ function AntiTamper:apply(ast, pipeline)
             checkLibraryMembers(debug, { "info" });
         elseif debug.getinfo then
             checkLibraryMembers(debug, { "getinfo" });
-        end
-    end
-
-    -- C-closure verification of every builtin we snapshotted. This is the
-    -- core hook-detection signal: a native builtin that has been replaced
-    -- with a Lua closure is flagged. Tolerant of missing debug APIs.
-    for _, fn in ipairs({
-        refs.assert, refs.error, refs.getmetatable, refs.next, refs.pairs,
-        refs.pcall, refs.rawequal, refs.rawget, refs.rawset, refs.select,
-        refs.setmetatable, refs.tonumber, refs.tostring, refs.type, refs.xpcall,
-        refs.stringByte, refs.stringChar, refs.stringSub, refs.stringFind,
-        refs.stringGsub, refs.stringFormat, refs.stringLen, refs.stringRep,
-        refs.stringReverse, refs.tableInsert, refs.tableRemove, refs.tableConcat,
-        refs.tableSort, refs.mathFloor, refs.mathAbs, refs.mathMin, refs.mathMax,
-        refs.coroutineCreate, refs.coroutineResume, refs.coroutineYield,
-        refs.coroutineStatus, refs.coroutineClose, refs.coroutineWrap,
-        refs.loadstring,
-    }) do
-        if type(fn) == "function" then
-            checkCClosure(fn);
         end
     end
 

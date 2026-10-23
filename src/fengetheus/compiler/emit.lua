@@ -196,7 +196,7 @@ return function(Compiler)
 		return opcode;
 	end
 
-	local function rewriteInstructionOperands(statement, operandPositions, loopScope, instructionVar)
+	local function rewriteInstructionOperands(statement, operandPositions, loopScope, instructionVar, operandOffset)
 		local seen = {};
 		local function visit(node)
 			if type(node) ~= "table" or seen[node] then return end
@@ -213,7 +213,7 @@ return function(Compiler)
 				end
 				node.index = Ast.IndexExpression(
 					Ast.VariableExpression(loopScope, instructionVar),
-					Ast.NumberExpression(operandIndex + 1)
+					Ast.NumberExpression(operandIndex + operandOffset)
 				);
 				node.__instructionRegister = nil;
 			end
@@ -230,7 +230,34 @@ return function(Compiler)
 		visit(statement);
 	end
 
-	local function buildInstructionDispatch(nodes, left, right, parentScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar)
+	local function instructionFailureCall(compiler, scope, reason)
+		scope:addReferenceToHigherScope(compiler.globalScope, compiler.errorGlobalVar)
+		return Ast.FunctionCallStatement(
+			Ast.VariableExpression(compiler.globalScope, compiler.errorGlobalVar),
+			{ Ast.StringExpression("Fengetheus: invalid instruction stream (" .. reason .. ")"), Ast.NumberExpression(0) }
+		)
+	end
+
+	local function instructionTypeExpression(compiler, scope, value)
+		scope:addReferenceToHigherScope(compiler.globalScope, compiler.typeGlobalVar)
+		return Ast.FunctionCallExpression(
+			Ast.VariableExpression(compiler.globalScope, compiler.typeGlobalVar),
+			{ value }
+		)
+	end
+
+	local function instructionFailureGuard(compiler, scope, condition, reason)
+		local failureScope = Scope:new(scope)
+		local emptyScope = Scope:new(scope)
+		return Ast.IfStatement(
+			condition,
+			Ast.Block({ instructionFailureCall(compiler, failureScope, reason) }, failureScope),
+			{},
+			Ast.Block({}, emptyScope)
+		)
+	end
+
+	local function buildInstructionDispatch(nodes, left, right, parentScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar, handledVar, compiler)
 		local dispatchScope = Scope:new(parentScope);
 		dispatchScope:addReferenceToHigherScope(loopScope, opcodeVar);
 
@@ -239,15 +266,24 @@ return function(Compiler)
 			local bodyScope = Scope:new(dispatchScope);
 			bodyScope:addReferenceToHigherScope(loopScope, instructionVar);
 			bodyScope:addReferenceToHigherScope(frameScope, frameVar);
-			rewriteInstructionOperands(instruction.statement, instruction.operandPositions, loopScope, instructionVar);
+			rewriteInstructionOperands(instruction.statement, instruction.operandPositions, loopScope, instructionVar,
+				compiler.InstructionIntegrity and 2 or 1);
+			local validInstruction = Ast.EqualsExpression(
+				Ast.VariableExpression(loopScope, opcodeVar),
+				Ast.NumberExpression(instruction.opcode)
+			);
 			local skippedScope = Scope:new(dispatchScope);
+			local action = { instruction.statement };
+			if compiler.InstructionIntegrity then
+				table.insert(action, 1, Ast.AssignmentStatement(
+					{ Ast.AssignmentVariable(loopScope, handledVar) },
+					{ Ast.BooleanExpression(true) }
+				));
+			end
 			return Ast.Block({
 				Ast.IfStatement(
-					Ast.EqualsExpression(
-						Ast.VariableExpression(loopScope, opcodeVar),
-						Ast.NumberExpression(instruction.opcode)
-					),
-					Ast.Block({ instruction.statement }, bodyScope),
+					validInstruction,
+					Ast.Block(action, bodyScope),
 					{},
 					Ast.Block({}, skippedScope)
 				)
@@ -260,8 +296,8 @@ return function(Compiler)
 		local bound = math.floor((leftOpcode + rightOpcode) / 2);
 		if bound <= leftOpcode then bound = leftOpcode + 1 end
 
-		local leftBlock = buildInstructionDispatch(nodes, left, middle, dispatchScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar);
-		local rightBlock = buildInstructionDispatch(nodes, middle + 1, right, dispatchScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar);
+		local leftBlock = buildInstructionDispatch(nodes, left, middle, dispatchScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar, handledVar, compiler);
+		local rightBlock = buildInstructionDispatch(nodes, middle + 1, right, dispatchScope, loopScope, opcodeVar, instructionVar, frameScope, frameVar, handledVar, compiler);
 		return Ast.Block({
 			Ast.IfStatement(
 				Ast.LessThanExpression(
@@ -275,23 +311,350 @@ return function(Compiler)
 		}, dispatchScope);
 	end
 
-	local function compileInstructionBlock(compiler, block, stats, programRows)
+	local MAX_INLINE_INSTRUCTION_DISPATCH = 64
+
+	local function buildInstructionDispatchGroups(groups, left, right, parentScope, loopScope,
+		opcodeVar, instructionVar, handlerTableScope, handlerTableVar, handledVar, compiler)
+		local dispatchScope = Scope:new(parentScope)
+		dispatchScope:addReferenceToHigherScope(loopScope, opcodeVar)
+		dispatchScope:addReferenceToHigherScope(loopScope, instructionVar)
+		dispatchScope:addReferenceToHigherScope(handlerTableScope, handlerTableVar)
+		if compiler.InstructionIntegrity then
+			dispatchScope:addReferenceToHigherScope(loopScope, handledVar)
+		end
+
+		if left == right then
+			local handlerCall = Ast.FunctionCallExpression(
+				Ast.IndexExpression(
+					Ast.VariableExpression(handlerTableScope, handlerTableVar),
+					Ast.NumberExpression(groups[left].handlerIndex)
+				),
+				{
+					Ast.VariableExpression(loopScope, instructionVar),
+					Ast.VariableExpression(loopScope, opcodeVar),
+				}
+			)
+			local statement
+			if compiler.InstructionIntegrity then
+				statement = Ast.AssignmentStatement(
+					{ Ast.AssignmentVariable(loopScope, handledVar) }, { handlerCall }
+				)
+			else
+				statement = Ast.FunctionCallStatement(handlerCall.base, handlerCall.args)
+			end
+			return Ast.Block({ statement }, dispatchScope)
+		end
+
+		local middle = math.floor((left + right) / 2)
+		local leftMaxOpcode = groups[middle].lastOpcode
+		local rightMinOpcode = groups[middle + 1].firstOpcode
+		local bound = math.floor((leftMaxOpcode + rightMinOpcode) / 2)
+		if bound <= leftMaxOpcode then bound = leftMaxOpcode + 1 end
+		local leftBlock = buildInstructionDispatchGroups(groups, left, middle, dispatchScope,
+			loopScope, opcodeVar, instructionVar, handlerTableScope, handlerTableVar, handledVar, compiler)
+		local rightBlock = buildInstructionDispatchGroups(groups, middle + 1, right, dispatchScope,
+			loopScope, opcodeVar, instructionVar, handlerTableScope, handlerTableVar, handledVar, compiler)
+		return Ast.Block({ Ast.IfStatement(
+			Ast.LessThanExpression(
+				Ast.VariableExpression(loopScope, opcodeVar), Ast.NumberExpression(bound)
+			),
+			leftBlock, {}, rightBlock
+		) }, dispatchScope)
+	end
+
+	local function buildInstructionHandlerTable(compiler, handlerParentScope, dispatchNodes, frameScope, frameVar)
+		local handlerEntries, groups = {}, {}
+		for first = 1, #dispatchNodes, MAX_INLINE_INSTRUCTION_DISPATCH do
+			local chunk = {}
+			local last = math.min(#dispatchNodes, first + MAX_INLINE_INSTRUCTION_DISPATCH - 1)
+			for index = first, last do chunk[#chunk + 1] = dispatchNodes[index] end
+
+			local handlerScope = Scope:new(handlerParentScope)
+			-- The handler body contains VM-generated expressions which refer to
+			-- ancestor locals directly. Reserve every visible ancestor name before
+			-- assigning names to the handler arguments, and explicitly record the
+			-- register-frame capture so minification cannot shadow it.
+			reserveAncestorNames(handlerParentScope, handlerScope)
+			handlerScope:addReferenceToHigherScope(frameScope, frameVar)
+			local instructionArg = handlerScope:addVariable()
+			local opcodeArg = handlerScope:addVariable()
+			local handledVar
+			local statements = {}
+			if compiler.InstructionIntegrity then
+				handledVar = handlerScope:addVariable()
+				statements[#statements + 1] = Ast.LocalVariableDeclaration(
+					handlerScope, { handledVar }, { Ast.BooleanExpression(false) }
+				)
+			end
+			local dispatch = buildInstructionDispatch(
+				chunk, 1, #chunk, handlerScope, handlerScope, opcodeArg, instructionArg,
+				frameScope, frameVar, handledVar, compiler
+			)
+			statements[#statements + 1] = Ast.DoStatement(dispatch)
+			if compiler.InstructionIntegrity then
+				statements[#statements + 1] = Ast.ReturnStatement({
+					Ast.VariableExpression(handlerScope, handledVar)
+				})
+			end
+			handlerEntries[#handlerEntries + 1] = Ast.TableEntry(
+				Ast.FunctionLiteralExpression(
+					{
+						Ast.VariableExpression(handlerScope, instructionArg),
+						Ast.VariableExpression(handlerScope, opcodeArg),
+					},
+					Ast.Block(statements, handlerScope)
+				)
+			)
+			groups[#groups + 1] = {
+				firstOpcode = chunk[1].opcode,
+				lastOpcode = chunk[#chunk].opcode,
+				handlerIndex = #handlerEntries,
+			}
+		end
+		return groups, Ast.TableConstructorExpression(handlerEntries)
+	end
+
+	local integrityModuli = { 2147483647, 2147483629 };
+
+	local function updateIntegrityHash(hash, multiplier, value, modulus)
+		return (hash * multiplier + value) % modulus;
+	end
+
+	local function integrityHashStatement(scope, hashVar, multiplier, modulus, value)
+		local multiplierExpression
+		if type(multiplier) == "number" then
+			multiplierExpression = Ast.NumberExpression(multiplier)
+		elseif type(multiplier) == "table" and multiplier.kind == Ast.AstKind.VariableExpression then
+			multiplierExpression = Ast.VariableExpression(multiplier.scope, multiplier.id)
+		else
+			multiplierExpression = multiplier
+		end
+		return Ast.AssignmentStatement(
+			{ Ast.AssignmentVariable(scope, hashVar) },
+			{
+				Ast.ModExpression(
+					Ast.AddExpression(
+						Ast.MulExpression(Ast.VariableExpression(scope, hashVar), multiplierExpression),
+						value
+					),
+					Ast.NumberExpression(modulus)
+				)
+			}
+		)
+	end
+
+	local function buildInstructionIntegrityCheck(compiler, functionScope, programVar, expectedCount, hashes)
+		local integrityScope = Scope:new(functionScope)
+		copyVisibleReferences(functionScope, integrityScope)
+		local hashVars = { integrityScope:addVariable(), integrityScope:addVariable() }
+		local rowScope = Scope:new(integrityScope)
+		copyVisibleReferences(integrityScope, rowScope)
+		local rowIndexVar = rowScope:addVariable()
+		local rowVar = rowScope:addVariable()
+		local rowLengthVar = rowScope:addVariable()
+		local rowStatements = {
+			Ast.LocalVariableDeclaration(rowScope, { rowVar }, {
+				Ast.IndexExpression(
+					Ast.VariableExpression(functionScope, programVar),
+					Ast.VariableExpression(rowScope, rowIndexVar)
+				)
+			}),
+			instructionFailureGuard(compiler, rowScope,
+				Ast.NotEqualsExpression(
+					instructionTypeExpression(compiler, rowScope, Ast.VariableExpression(rowScope, rowVar)),
+					Ast.StringExpression("table")
+				), "instruction row type"
+			),
+			Ast.LocalVariableDeclaration(rowScope, { rowLengthVar }, {
+				Ast.LenExpression(Ast.VariableExpression(rowScope, rowVar))
+			}),
+		}
+		for hashIndex = 1, 2 do
+			rowStatements[#rowStatements + 1] = integrityHashStatement(
+				integrityScope, hashVars[hashIndex], hashes[hashIndex].multiplier, integrityModuli[hashIndex],
+				Ast.VariableExpression(rowScope, rowIndexVar)
+			)
+			rowStatements[#rowStatements + 1] = integrityHashStatement(
+				integrityScope, hashVars[hashIndex], hashes[hashIndex].multiplier, integrityModuli[hashIndex],
+				Ast.VariableExpression(rowScope, rowLengthVar)
+			)
+		end
+
+		local fieldScope = Scope:new(rowScope)
+		copyVisibleReferences(rowScope, fieldScope)
+		local fieldIndexVar = fieldScope:addVariable()
+		local fieldValueVar = fieldScope:addVariable()
+		local fieldStatements = {
+			Ast.LocalVariableDeclaration(fieldScope, { fieldValueVar }, {
+				Ast.IndexExpression(
+					Ast.VariableExpression(rowScope, rowVar),
+					Ast.VariableExpression(fieldScope, fieldIndexVar)
+				)
+			}),
+			instructionFailureGuard(compiler, fieldScope,
+				Ast.NotEqualsExpression(
+					instructionTypeExpression(compiler, fieldScope, Ast.VariableExpression(fieldScope, fieldValueVar)),
+					Ast.StringExpression("number")
+				), "instruction field type"
+			),
+		}
+		for hashIndex = 1, 2 do
+			fieldStatements[#fieldStatements + 1] = integrityHashStatement(
+				integrityScope, hashVars[hashIndex], hashes[hashIndex].multiplier, integrityModuli[hashIndex],
+				Ast.VariableExpression(fieldScope, fieldValueVar)
+			)
+		end
+		rowStatements[#rowStatements + 1] = Ast.ForStatement(
+			fieldScope, fieldIndexVar, Ast.NumberExpression(1),
+			Ast.VariableExpression(rowScope, rowLengthVar), Ast.NumberExpression(1),
+			Ast.Block(fieldStatements, fieldScope), rowScope
+		)
+
+		local rowLoop = Ast.ForStatement(
+			rowScope, rowIndexVar, Ast.NumberExpression(1),
+			Ast.LenExpression(Ast.VariableExpression(functionScope, programVar)), Ast.NumberExpression(1),
+			Ast.Block(rowStatements, rowScope), integrityScope
+		)
+		local statements = {
+			Ast.LocalVariableDeclaration(integrityScope, hashVars, {
+				type(hashes[1].seed) == "number" and Ast.NumberExpression(hashes[1].seed) or hashes[1].seed,
+				type(hashes[2].seed) == "number" and Ast.NumberExpression(hashes[2].seed) or hashes[2].seed,
+			}),
+			integrityHashStatement(
+				integrityScope, hashVars[1], hashes[1].multiplier, integrityModuli[1],
+				Ast.LenExpression(Ast.VariableExpression(functionScope, programVar))
+			),
+			integrityHashStatement(
+				integrityScope, hashVars[2], hashes[2].multiplier, integrityModuli[2],
+				Ast.LenExpression(Ast.VariableExpression(functionScope, programVar))
+			),
+			rowLoop,
+		}
+		local invalidHash = Ast.OrExpression(
+			Ast.NotEqualsExpression(
+				Ast.VariableExpression(integrityScope, hashVars[1]),
+				type(hashes[1].value) == "number" and Ast.NumberExpression(hashes[1].value) or hashes[1].value
+			),
+			Ast.NotEqualsExpression(
+				Ast.VariableExpression(integrityScope, hashVars[2]),
+				type(hashes[2].value) == "number" and Ast.NumberExpression(hashes[2].value) or hashes[2].value
+			)
+		)
+		statements[#statements + 1] = instructionFailureGuard(
+			compiler, integrityScope, invalidHash, "instruction data fingerprint"
+		)
+		return Ast.Block({
+			instructionFailureGuard(compiler, functionScope,
+				Ast.NotEqualsExpression(
+					instructionTypeExpression(compiler, functionScope, Ast.VariableExpression(functionScope, programVar)),
+					Ast.StringExpression("table")
+				), "block program type"
+			),
+			instructionFailureGuard(compiler, functionScope,
+				Ast.NotEqualsExpression(
+					Ast.LenExpression(Ast.VariableExpression(functionScope, programVar)),
+					Ast.VariableExpression(functionScope, expectedCount)
+				), "block program length"
+			),
+			Ast.DoStatement(Ast.Block(statements, integrityScope)),
+		}, functionScope)
+	end
+
+	local function buildInstructionIntegrityVerifier(compiler)
+		local functionScope = Scope:new(compiler.containerFuncScope)
+		local programVar = functionScope:addVariable()
+		local metadataVar = functionScope:addVariable()
+		local metadataIds, metadataValues = {}, {}
+		for index = 1, 7 do
+			metadataIds[index] = functionScope:addVariable()
+			metadataValues[index] = Ast.IndexExpression(
+				Ast.VariableExpression(functionScope, metadataVar), Ast.NumberExpression(index)
+			)
+		end
+		local hashes = {
+			{
+				seed = Ast.VariableExpression(functionScope, metadataIds[2]),
+				multiplier = Ast.VariableExpression(functionScope, metadataIds[3]),
+				value = Ast.VariableExpression(functionScope, metadataIds[4]),
+			},
+			{
+				seed = Ast.VariableExpression(functionScope, metadataIds[5]),
+				multiplier = Ast.VariableExpression(functionScope, metadataIds[6]),
+				value = Ast.VariableExpression(functionScope, metadataIds[7]),
+			},
+		}
+		local body = buildInstructionIntegrityCheck(
+			compiler, functionScope, programVar, metadataIds[1], hashes
+		)
+		table.insert(body.statements, 1, Ast.LocalVariableDeclaration(functionScope, metadataIds, metadataValues))
+		table.insert(body.statements, 1, instructionFailureGuard(compiler, functionScope,
+			Ast.NotEqualsExpression(
+				instructionTypeExpression(compiler, functionScope, Ast.VariableExpression(functionScope, metadataVar)),
+				Ast.StringExpression("table")
+			), "block integrity metadata type"
+		))
+		return Ast.LocalFunctionDeclaration(
+			compiler.containerFuncScope,
+			compiler.instructionIntegrityVerifierVar,
+			{
+				Ast.VariableExpression(functionScope, programVar),
+				Ast.VariableExpression(functionScope, metadataVar),
+			},
+			body
+		)
+	end
+
+	local function compileInstructionBlock(compiler, block, stats, programRows, integrityMetadataRows,
+		instructionDispatchRows, instructionDispatchTablesVar)
 		local instructions, rows = {}, {};
 		for _, stat in ipairs(stats) do
 			local operands = instructionOperands(stat);
 			local positions = {};
 			local opcode = nextInstructionOpcode(compiler);
+			local ordinal = #instructions + 1;
 			local row = { Ast.TableEntry(Ast.NumberExpression(opcode)) };
+			if compiler.InstructionIntegrity then
+				row[#row + 1] = Ast.TableEntry(Ast.NumberExpression(ordinal));
+			end
 			for index, registerId in ipairs(operands) do
 				positions[registerId] = index;
 				row[#row + 1] = Ast.TableEntry(Ast.NumberExpression(registerId));
 			end
 			instructions[#instructions + 1] = {
 				opcode = opcode,
+				ordinal = compiler.InstructionIntegrity and ordinal or nil,
+				operands = compiler.InstructionIntegrity and operands or nil,
 				operandPositions = positions,
 				statement = stat.statement,
 			};
 			rows[#rows + 1] = Ast.TableEntry(Ast.TableConstructorExpression(row));
+		end
+		local hashes;
+		if compiler.InstructionIntegrity then
+			local metadata = { Ast.TableEntry(Ast.NumberExpression(#instructions)) };
+			hashes = {}
+			for hashIndex = 1, 2 do
+				local seed = math.random(1, 32767)
+				local multiplier = math.random(257, 32767)
+				local modulus = integrityModuli[hashIndex]
+				local hash = updateIntegrityHash(seed, multiplier, #instructions, modulus)
+				for _, instruction in ipairs(instructions) do
+					hash = updateIntegrityHash(hash, multiplier, instruction.ordinal, modulus)
+					hash = updateIntegrityHash(hash, multiplier, #instruction.operands + 2, modulus)
+					hash = updateIntegrityHash(hash, multiplier, instruction.opcode, modulus)
+					hash = updateIntegrityHash(hash, multiplier, instruction.ordinal, modulus)
+					for _, registerId in ipairs(instruction.operands) do
+						hash = updateIntegrityHash(hash, multiplier, registerId, modulus)
+					end
+				end
+				hashes[hashIndex] = { seed = seed, multiplier = multiplier, value = hash }
+				metadata[#metadata + 1] = Ast.TableEntry(Ast.NumberExpression(seed))
+				metadata[#metadata + 1] = Ast.TableEntry(Ast.NumberExpression(multiplier))
+				metadata[#metadata + 1] = Ast.TableEntry(Ast.NumberExpression(hash))
+			end
+			integrityMetadataRows[#integrityMetadataRows + 1] = Ast.KeyedTableEntry(
+				Ast.NumberExpression(block.id), Ast.TableConstructorExpression(metadata)
+			);
 		end
 
 		-- Store the numeric program once with the wrapper. Each instruction
@@ -314,35 +677,74 @@ return function(Compiler)
 		local instructionVar = loopScope:addVariable();
 		local opcodeVar = loopScope:addVariable();
 		blockScope:addReferenceToHigherScope(compiler.scope, compiler.instructionProgramsVar);
+		if compiler.InstructionIntegrity then
+			blockScope:addReferenceToHigherScope(compiler.scope, compiler.instructionIntegrityMetadataVar);
+		end
 		blockScope:addReferenceToHigherScope(compiler.containerFuncScope, compiler.registerFrameVar);
+		if compiler.InstructionIntegrity then
+			blockScope:addReferenceToHigherScope(compiler.containerFuncScope, compiler.instructionIntegrityVerifierVar);
+		end
 		loopScope:addReferenceToHigherScope(blockScope, programVar);
 		loopScope:addReferenceToHigherScope(blockScope, instructionIndexVar);
 
 		local dispatchNodes = {};
 		for index, instruction in ipairs(instructions) do dispatchNodes[index] = instruction end
 		table.sort(dispatchNodes, function(left, right) return left.opcode < right.opcode end);
+		local instructionHandlerTableVar, instructionHandlerGroups
+		if #dispatchNodes > MAX_INLINE_INSTRUCTION_DISPATCH then
+			instructionHandlerTableVar = blockScope:addVariable()
+			blockScope:addReferenceToHigherScope(compiler.containerFuncScope, instructionDispatchTablesVar)
+			local handlerTableAst
+			instructionHandlerGroups, handlerTableAst = buildInstructionHandlerTable(
+				compiler, compiler.containerFuncScope, dispatchNodes,
+				compiler.containerFuncScope, compiler.registerFrameVar
+			)
+			instructionDispatchRows[#instructionDispatchRows + 1] = Ast.KeyedTableEntry(
+				Ast.NumberExpression(block.id), handlerTableAst
+			)
+		end
 		local loopStatements = {};
+		local handledVar;
 		if #dispatchNodes > 0 then
-			local dispatch = buildInstructionDispatch(
-				dispatchNodes, 1, #dispatchNodes, loopScope, loopScope,
-				opcodeVar, instructionVar, compiler.containerFuncScope, compiler.registerFrameVar
-			);
-			loopStatements = {
-				Ast.LocalVariableDeclaration(loopScope, { instructionVar }, {
-					Ast.IndexExpression(
-						Ast.VariableExpression(blockScope, programVar),
+			loopStatements[#loopStatements + 1] = Ast.LocalVariableDeclaration(loopScope, { instructionVar }, {
+				Ast.IndexExpression(
+					Ast.VariableExpression(blockScope, programVar),
 					Ast.VariableExpression(blockScope, instructionIndexVar)
-					)
-				}),
-				Ast.LocalVariableDeclaration(loopScope, { opcodeVar }, {
-					Ast.IndexExpression(Ast.VariableExpression(loopScope, instructionVar), Ast.NumberExpression(1))
-				}),
-				Ast.DoStatement(dispatch),
-				Ast.AssignmentStatement(
+				)
+			});
+			loopStatements[#loopStatements + 1] = Ast.LocalVariableDeclaration(loopScope, { opcodeVar }, {
+				Ast.IndexExpression(Ast.VariableExpression(loopScope, instructionVar), Ast.NumberExpression(1))
+			});
+			if compiler.InstructionIntegrity then
+				handledVar = loopScope:addVariable();
+				loopStatements[#loopStatements + 1] = Ast.LocalVariableDeclaration(loopScope, { handledVar }, {
+					Ast.BooleanExpression(false)
+				});
+			end
+			local dispatch
+			if instructionHandlerGroups then
+				dispatch = buildInstructionDispatchGroups(
+					instructionHandlerGroups, 1, #instructionHandlerGroups, loopScope, loopScope,
+					opcodeVar, instructionVar, blockScope, instructionHandlerTableVar,
+					handledVar, compiler
+				)
+			else
+				dispatch = buildInstructionDispatch(
+					dispatchNodes, 1, #dispatchNodes, loopScope, loopScope,
+					opcodeVar, instructionVar, compiler.containerFuncScope, compiler.registerFrameVar,
+					handledVar, compiler
+				)
+			end
+			loopStatements[#loopStatements + 1] = Ast.DoStatement(dispatch);
+			if compiler.InstructionIntegrity then
+				loopStatements[#loopStatements + 1] = instructionFailureGuard(compiler, loopScope,
+					Ast.NotExpression(Ast.VariableExpression(loopScope, handledVar)), "unknown opcode"
+				);
+			end
+			loopStatements[#loopStatements + 1] = Ast.AssignmentStatement(
 				{ Ast.AssignmentVariable(blockScope, instructionIndexVar) },
 				{ Ast.AddExpression(Ast.VariableExpression(blockScope, instructionIndexVar), Ast.NumberExpression(1)) }
-				),
-			};
+			);
 		end
 		local loopBody = Ast.Block(loopStatements, loopScope);
 		local loop = Ast.WhileStatement(loopBody,
@@ -351,25 +753,65 @@ return function(Compiler)
 				Ast.LenExpression(Ast.VariableExpression(blockScope, programVar))
 			)
 		);
+		local statements = {};
+		statements[#statements + 1] = Ast.LocalVariableDeclaration(blockScope, { programVar }, {
+			Ast.IndexExpression(
+				Ast.VariableExpression(compiler.scope, compiler.instructionProgramsVar),
+				Ast.NumberExpression(block.id)
+			)
+		})
+		statements[#statements + 1] = Ast.LocalVariableDeclaration(
+			blockScope, { instructionIndexVar }, { Ast.NumberExpression(1) }
+		)
+		if instructionHandlerTableVar then
+			statements[#statements + 1] = Ast.LocalVariableDeclaration(
+				blockScope, { instructionHandlerTableVar }, {
+					Ast.IndexExpression(
+						Ast.VariableExpression(compiler.containerFuncScope, instructionDispatchTablesVar),
+						Ast.NumberExpression(block.id)
+					)
+				}
+			)
+		end
+		if compiler.InstructionIntegrity then
+			statements[#statements + 1] = Ast.FunctionCallStatement(
+				Ast.VariableExpression(compiler.containerFuncScope, compiler.instructionIntegrityVerifierVar),
+				{
+					Ast.VariableExpression(blockScope, programVar),
+					Ast.IndexExpression(
+						Ast.VariableExpression(compiler.scope, compiler.instructionIntegrityMetadataVar),
+						Ast.NumberExpression(block.id)
+					),
+				}
+			);
+		end
+		statements[#statements + 1] = loop;
+		if compiler.InstructionIntegrity then
+			statements[#statements + 1] = instructionFailureGuard(compiler, blockScope,
+				Ast.NotEqualsExpression(
+					Ast.VariableExpression(blockScope, instructionIndexVar),
+					Ast.NumberExpression(#instructions + 1)
+			), "final instruction index"
+			);
+		end
 
 		return {
 			id = block.id,
-			block = Ast.Block({
-				Ast.LocalVariableDeclaration(blockScope, { programVar }, {
-					Ast.IndexExpression(
-						Ast.VariableExpression(compiler.scope, compiler.instructionProgramsVar),
-						Ast.NumberExpression(block.id)
-					)
-				}),
-				Ast.LocalVariableDeclaration(blockScope, { instructionIndexVar }, { Ast.NumberExpression(1) }),
-				loop,
-			}, blockScope),
+			block = Ast.Block(statements, blockScope),
 		};
 	end
 
     function Compiler:emitContainerFuncBody()
         local blocks = {};
 		local instructionPrograms = {};
+		local integrityMetadata = {};
+		local instructionDispatchRows = {};
+		if self.InstructionVM then
+			self.instructionDispatchTablesVar = self.containerFuncScope:addVariable();
+		end
+		if self.InstructionIntegrity then
+			self.instructionIntegrityVerifierVar = self.containerFuncScope:addVariable();
+		end
 
         util.shuffle(self.blocks);
 
@@ -434,7 +876,8 @@ return function(Compiler)
 
 			local emittedBlock;
 			if self.InstructionVM then
-				emittedBlock = compileInstructionBlock(self, block, mergedBlockStats, instructionPrograms);
+				emittedBlock = compileInstructionBlock(self, block, mergedBlockStats, instructionPrograms,
+					integrityMetadata, instructionDispatchRows, self.instructionDispatchTablesVar);
 			else
 				blockstats = {};
 				for _, stat in ipairs(mergedBlockStats) do
@@ -446,6 +889,12 @@ return function(Compiler)
         end
 		if self.InstructionVM then
 			self.instructionProgramsAst = Ast.TableConstructorExpression(instructionPrograms);
+		end
+		if self.InstructionIntegrity then
+			self.instructionIntegrityMetadataAst = Ast.TableConstructorExpression(integrityMetadata);
+		end
+		if #instructionDispatchRows > 0 then
+			self.instructionDispatchTablesAst = Ast.TableConstructorExpression(instructionDispatchRows);
 		end
 
         table.sort(blocks, function(a, b) return a.id < b.id end);
@@ -616,6 +1065,10 @@ return function(Compiler)
         end
 
         local stats = {}
+		local integrityVerifier
+		if self.InstructionIntegrity then
+			integrityVerifier = buildInstructionIntegrityVerifier(self);
+		end
 
         if not self.InstructionVM and self.maxUsedRegister >= MAX_REGS then
             table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, {self.registerVars[MAX_REGS]}, {Ast.TableConstructorExpression({})}));
@@ -624,6 +1077,31 @@ return function(Compiler)
         table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, util.shuffle(declarations), {}));
 		if self.InstructionVM then
 			table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope, { self.registerFrameVar }, { Ast.TableConstructorExpression({}) }));
+		end
+		if self.instructionDispatchTablesAst then
+			table.insert(stats, Ast.LocalVariableDeclaration(self.containerFuncScope,
+				{ self.instructionDispatchTablesVar }, { self.instructionDispatchTablesAst }))
+		end
+		if integrityVerifier then table.insert(stats, integrityVerifier) end
+		if self.InstructionIntegrity then
+			self.containerFuncScope:addReferenceToHigherScope(self.scope, self.instructionProgramsVar)
+			self.containerFuncScope:addReferenceToHigherScope(self.scope, self.instructionIntegrityMetadataVar)
+			stats[#stats + 1] = instructionFailureGuard(self, self.containerFuncScope,
+				Ast.NotEqualsExpression(
+					instructionTypeExpression(self, self.containerFuncScope,
+						Ast.VariableExpression(self.scope, self.instructionProgramsVar)
+					),
+					Ast.StringExpression("table")
+				), "instruction program table type"
+			)
+			stats[#stats + 1] = instructionFailureGuard(self, self.containerFuncScope,
+				Ast.NotEqualsExpression(
+					instructionTypeExpression(self, self.containerFuncScope,
+						Ast.VariableExpression(self.scope, self.instructionIntegrityMetadataVar)
+					),
+					Ast.StringExpression("table")
+				), "integrity metadata table type"
+			)
 		end
 
         table.insert(stats, Ast.WhileStatement(whileBody, Ast.VariableExpression(self.containerFuncScope, self.posVar)));

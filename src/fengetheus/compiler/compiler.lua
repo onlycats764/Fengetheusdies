@@ -41,6 +41,7 @@ function Compiler:new(options)
 		DispatchMaskMagnitude = options.DispatchMaskMagnitude or 4096;
 		DispatchNoiseMagnitude = options.DispatchNoiseMagnitude or 7;
 		InstructionVM = options.InstructionVM == true;
+		InstructionIntegrity = options.InstructionVM == true and options.InstructionIntegrity == true;
 		DispatchMultiplier = 1;
 		DispatchOffset = 0;
 		DispatchNoise = {};
@@ -193,6 +194,9 @@ function Compiler:compile(ast)
 	self.usedBlockIds = {};
 	self.ir = nil;
 	self.instructionProgramsAst = nil;
+	self.instructionIntegrityMetadataAst = nil;
+	self.instructionDispatchTablesAst = nil;
+	self.instructionDispatchTablesVar = nil;
 	self.usedInstructionOpcodes = {};
 	self.DispatchAliasCount = math.max(1, math.min(4, math.floor(self.DispatchAliasCount or 1)));
 
@@ -221,6 +225,13 @@ function Compiler:compile(ast)
     self.upvalsProxyLenReturn = math.random(-2^22, 2^22);
 
     local newGlobalScope = Scope:newGlobal();
+    self.globalScope = newGlobalScope;
+    if self.InstructionIntegrity then
+        local _, errorGlobalVar = newGlobalScope:resolve("error");
+        local _, typeGlobalVar = newGlobalScope:resolve("type");
+        self.errorGlobalVar = errorGlobalVar;
+        self.typeGlobalVar = typeGlobalVar;
+    end
     local psc = Scope:new(newGlobalScope, nil);
 
     local _, getfenvVar = newGlobalScope:resolve("getfenv");
@@ -265,6 +276,9 @@ function Compiler:compile(ast)
     self.containerFuncVar = self.scope:addVariable();
 	if self.InstructionVM then
 		self.instructionProgramsVar = self.scope:addVariable();
+	end
+	if self.InstructionIntegrity then
+		self.instructionIntegrityMetadataVar = self.scope:addVariable();
 	end
     self.unpackVar = self.scope:addVariable();
     -- FIX#3: P (pack multi-values with true count) and X (hole-safe expand)
@@ -472,6 +486,12 @@ function Compiler:compile(ast)
 		table.insert(functionNodeAssignments, {
 			var = Ast.AssignmentVariable(self.scope, self.instructionProgramsVar),
 			val = self.instructionProgramsAst,
+		});
+	end
+	if self.InstructionIntegrity then
+		table.insert(functionNodeAssignments, {
+			var = Ast.AssignmentVariable(self.scope, self.instructionIntegrityMetadataVar),
+			val = self.instructionIntegrityMetadataAst,
 		});
 	end
 

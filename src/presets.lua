@@ -625,7 +625,7 @@ presets.SafeVM = {
 		{ Name = "RedundantOperationElimination", Settings = {} },
 		{ Name = "LocalCaching", Settings = {} },
 		{ Name = "AntiTamper", Settings = { UseDebug = false } },
-		{ Name = "Vmify", Settings = { InstructionVM = true } },
+		{ Name = "Vmify", Settings = { InstructionVM = true, InstructionIntegrity = true } },
 		{ Name = "ExtractGlobals", Settings = {} },
 		{ Name = "EncryptStrings", Settings = {} },
 		{

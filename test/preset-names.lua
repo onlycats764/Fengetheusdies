@@ -34,6 +34,8 @@ for index, step in ipairs(presets.SafeVM.Steps) do
 end
 assert(safeVmify and presets.SafeVM.Steps[safeVmify].Settings.InstructionVM == true,
 	"SafeVM must use the instruction-stream VM")
+assert(presets.SafeVM.Steps[safeVmify].Settings.InstructionIntegrity == true,
+	"SafeVM must validate its instruction stream")
 assert(safeAntiTamper and not safeLoader, "SafeVM must keep AntiTamper and omit the loader")
 assert(safeAntiTamper < safeVmify,
 	"SafeVM must compile AntiTamper checks inside the instruction-stream VM")

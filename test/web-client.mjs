@@ -126,6 +126,7 @@ const safeAntiTamperIndex = cfg.Steps.findIndex((step) => step.Name === "AntiTam
 assert.ok(safeVmIndex >= 0 && safeAntiTamperIndex >= 0 && safeAntiTamperIndex < safeVmIndex,
   "SafeVM should compile AntiTamper checks inside the instruction VM");
 assert.equal(cfg.Steps.find((step) => step.Name === "Vmify").Settings.InstructionVM, true);
+assert.equal(cfg.Steps.find((step) => step.Name === "Vmify").Settings.InstructionIntegrity, true);
 assert.ok(!cfg.Steps.some((step) => step.Name === "TamperObfuscator"), "SafeVM enabled the anti-tamper loader");
 const safeVmOutput = await [...downloads.values()].at(-1).text();
 assert.equal(await engine.doString(safeVmOutput), 42, "SafeVM browser output changed the result");
